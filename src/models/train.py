@@ -1,6 +1,8 @@
 import argparse
 import os
 import numpy as np
+from typing import List, Dict
+
 try:
     import xgboost as xgb
     HAS_XGB=True
@@ -14,9 +16,38 @@ try:
 except ImportError:
     HAS_TORCH=False
 
+COMPLICATIONS: Dict[str, dict]={
+    "endoleak_type1": {
+        "description": "Endoleak Type I",
+        # ---- TO DEFINE ----
+        "physical_driver": "pressure",
+        "at_risk_feature": "pressure_pct_at_risk",
+        # ---- TO DEFINE ----
+        "class_weight": 1.0,
+    },
+    "endoleak_type2": {
+        "description": "Endoleak Type II",
+        # ---- TO DEFINE ----
+        "physical_driver": "ecap",
+        "at_risk_feature": "ecap_pct_at_risk",
+        # ---- TO DEFINE ----
+        "class_weight": 1.0,
+    },
+    "endoleak_type3": {
+        "description": "Endoleak Type III",
+        # ---- TO DEFINE ----
+        "physical_driver": "wss",
+        "at_risk_feature": "wss_pct_at_risk",
+        # ---- TO DEFINE ----
+        "class_weight": 1.0,
+    },
+}
+
+COMPLICATION_KEYS: List[str]=list(COMPLICATIONS.keys())
+
 def main():
     parser=argparse.ArgumentParser(description="Train EVAR risk predictor")
-    parser.add_argument("--model", default="gnn_pinn", choices=["gnn_pinn"])
+    parser.add_argument("--model", default="gnn_pinn", choices=["gnn_pinn", "xgboost"])
     parser.add_argument("--features", required=True)
     parser.add_argument("--labels", required=True)
     parser.add_argument("--vtp-dir", default="data/vtp_files/", help="Spatial Features Directory")
@@ -40,6 +71,6 @@ def main():
         training_gnnpinn()
         return
     #OTHER MODELS DOWN BELOW
-    
+    if args.model=="xgboost":
 if __name__=="__main__":
     main()
