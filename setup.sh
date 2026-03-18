@@ -85,7 +85,7 @@ else
     TORCH_INDEX="https://download.pytorch.org/whl/cpu"
     PYG_CUDA="cpu"
 fi
-pip install torch torchvision torchaudio --index-url $TORCH_INDEX -q
+pip install torch --index-url $TORCH_INDEX -q
 success "PyTorch installed"
 #Pytorch Geometric Installation (GNN Framework)
 TORCH=$(python3 -c "import torch; print(torch.__version__.split('+')[0])")

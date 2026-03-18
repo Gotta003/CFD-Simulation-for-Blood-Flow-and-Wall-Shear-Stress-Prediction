@@ -2,3 +2,6 @@
 .evar_env/
 data/
 outputs/
+
+# Files
+members.json
