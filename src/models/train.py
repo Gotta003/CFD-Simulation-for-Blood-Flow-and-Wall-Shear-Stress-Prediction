@@ -1,4 +1,18 @@
 import argparse
+import os
+import numpy as np
+try:
+    import xgboost as xgb
+    HAS_XGB=True
+except ImportError:
+    HAS_XGB=False
+    
+try:
+    import torch
+    import torch.nn as nn 
+    HAS_TORCH=True
+except ImportError:
+    HAS_TORCH=False
 
 def main():
     parser=argparse.ArgumentParser(description="Train EVAR risk predictor")
