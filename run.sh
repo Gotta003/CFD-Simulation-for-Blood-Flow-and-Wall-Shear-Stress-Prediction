@@ -36,13 +36,17 @@ for vtp_file in "$VTP_DIR"/*.vtp; do
 	fi
 done
 
+# 5) Add patients to .csv files empty
+python add_patients.py --min 1 --max 120
+python patients_management.py
+
 #XGBOOST
-echo "Training XGBoost"
-python -m src.models.train \
-	--model xgboost \
-	--features outputs/features/features.csv \
-	--labels data/labels/outcomes.csv \
-	--out outputs/models/xgboost \
-	--cv 5
+#echo "Training XGBoost"
+#python -m src.models.train \
+#	--model xgboost \
+#	--features outputs/features/features.csv \
+#	--labels data/labels/outcomes.csv \
+#	--out outputs/models/xgboost \
+#	--cv 5
 
 #python patients_management.py
