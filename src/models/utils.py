@@ -37,7 +37,7 @@ def load_tabular_data(cfg: XGBoostConfig | GNNPINNConfig) -> Tuple[np.ndarray, D
     y: Dict[str, np.ndarray]={}
     for k in COMPLICATIONS:
         if k in df.columns:
-            y[k]=df[k].values.astype(int)
+            y[k]=df[k].to_numpy().astype(np.int32)
         else:
             print(f"[WARN] Label column '{k}' not found in CSV - skipping")
     print(f"\nTabular data loaded:")
