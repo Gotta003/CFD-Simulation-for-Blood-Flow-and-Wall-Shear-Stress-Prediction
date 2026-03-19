@@ -10,11 +10,14 @@ FILE_NAME="./data/labels/outcomes.csv"
 REPORTS_BASE="../report/"
 IMAGES_BASE="./outputs/mesh_heatmaps/"
 FEATURES_FILE="./outputs/features/features.csv"
+VTP_BASE="./data/vtp_files/"
 
 try:
     from PIL import Image, ImageTk
+    HAS_PIL=True
 except ImportError:
     print("Warning: Pillow not installed. Image gallery will not work. Run: pip install Pillow")
+    HAS_PIL=False
 
 # Create report folder if it doesn't exist
 if not os.path.exists(REPORTS_BASE):
@@ -24,6 +27,43 @@ COMP_STRUCTURE={
     "Endoleak": {"Type I": ["Type IA", "Type IB"], "Type II": [], "Type III": []},
     "Other": ["Graft_Migration", "Thrombosis", "Reintervention", "Rupture"]
 }
+
+def detect_report_status(patient_id: int, examined_files_str: str) -> bool:
+    base=REPORTS_BASE
+    try:
+        folder=os.path.join(base, f"pz{int(patient_id):03d}")
+    except (ValueError, TypeError):
+        return False
+    
+    if not os.path.exists(folder):
+        return False
+
+    all_files=[f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+    
+    examined=set(examined_files_str.split("|")) if examined_files_str else set()
+    return all(f in examined for f in all_files)
+
+def detect_cfd_status(patient_id: int) -> bool:
+    try:
+        id_str=f"pz{int(patient_id):03d}"
+    except (ValueError, TypeError):
+        return False
+    if not os.path.exists(VTP_BASE):
+        return False
+    for fname in os.listdir(VTP_BASE):
+        if fname.lower().endswith(".vtp") and id_str in fname.lower():
+            return True
+    return False
+
+def detect_image_status(patient_id: int) -> bool:
+    try:
+        folder=os.path.join(IMAGES_BASE, f"pz{int(patient_id):03d}")
+    except (ValueError, TypeError):
+        return False
+    if not os.path.exists(folder):
+        return False
+    valid_ext=('.jpg', '.jpeg', '.png')
+    return any(f.lower().endswith(valid_ext) for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f)))
 
 class PatientApp:
     def __init__(self, root):
@@ -56,6 +96,24 @@ class PatientApp:
             return os.path.join(base, folder_name)
         except: return None
 
+    def refresh_auto_status(self, patient_id, examined_files_str=""):
+        report_ok=detect_report_status(patient_id, examined_files_str)
+        cfd_ok=detect_cfd_status(patient_id)
+        img_ok=detect_image_status(patient_id)
+        self.report_var.set(report_ok)
+        self.cfd_var.set(cfd_ok)
+        self.img_var.set(img_ok)
+        def _indicator(val):
+            return ("OK", "#2ecc71") if val else ("x", "#c0392b")
+        
+        for var_ok, lbl in [
+            (report_ok, self.report_status_lbl),
+            (cfd_ok, self.cfd_status_lbl),
+            (img_ok, self.img_status_lbl)
+        ]:
+            sym, col=_indicator(var_ok)
+            lbl.config(text=sym, fg=col)
+
     def setup_ui(self):
         # LEFT SIDEBAR (IDs + Filters)
         sidebar=tk.Frame(self.root, width=280, bg="#f4f4f4", padx=10, pady=10)
@@ -82,21 +140,36 @@ class PatientApp:
         tk.Label(self.center_panel, text="Patient ID:", font=("Arial", 10, "bold")).pack(anchor="w")
         self.id_entry=tk.Entry(self.center_panel, font=("Arial", 11))
         self.id_entry.pack(fill="x", pady=5)
-        wf_frame=tk.LabelFrame(self.center_panel, text="Workflow Status", padx=10, pady=10)
+        #Workflow Status
+        wf_frame=tk.LabelFrame(self.center_panel, text="Workflow Status", padx=10, pady=8)
         wf_frame.pack(fill="x", pady=10)
         self.report_var=tk.BooleanVar()
         self.cfd_var=tk.BooleanVar()
         self.img_var=tk.BooleanVar()
-        self.report_cb=tk.Checkbutton(wf_frame, text="Report Analysis", variable=self.report_var)
-        self.cfd_cb=tk.Checkbutton(wf_frame, text="CFD Simulations", variable=self.cfd_var)
-        self.img_cb=tk.Checkbutton(wf_frame, text="Images Processing", variable=self.img_var)
-        self.report_cb.pack(side="left", padx=5)
-        self.cfd_cb.pack(side="left", padx=5)
-        self.img_cb.pack(side="left", padx=5)
+        
+        def _status_row(parent, text, row):
+            tk.Label(parent, text=text, font=("Arial", 10)).grid(row=row, column=0, sticky="w", padx=(0, 6))
+            lbl=tk.Label(parent, text="x", fg="#c0392b", font=("Arial", 11, "bold"), width=3)
+            lbl.grid(row=row, column=1, sticky="w")
+            return lbl
+        self.report_status_lbl=_status_row(wf_frame, "Report Analysis", 0)
+        self.cfd_status_lbl=_status_row(wf_frame, "CFD Simulations", 1)
+        self.img_status_lbl=_status_row(wf_frame, "Image Processing", 2)
+        
+        #Labeling
+        label_frame=tk.LabelFrame(self.center_panel, text="Labeling", padx=10, pady=8)
+        label_frame.pack(fill="x", pady=(0,6))
+        self.labeling_var=tk.BooleanVar()
+        self.labeling_cb=tk.Checkbutton(label_frame, text="Outcome labels verified and confirmed", variable=self.labeling_var, font=("Arial", 10))
+        self.labeling_cb.pack(anchor="w")
+        tk.Label(label_frame, text="Manually click once complication labels have been reviewed.", font=("Arial", 7), fg="#aaaaaa", wraplength=380, justify="left").pack(anchor="w")
+        
+        #Requires Operation Button
         self.op_var=tk.BooleanVar()
         self.op_check=tk.Checkbutton(self.center_panel, text="Requires Operation", variable=self.op_var, command=self.handle_op_toggle)
         self.op_check.pack(anchor="w")
 
+        #Complications
         self.comp_frame=tk.LabelFrame(self.center_panel, text="Complications", padx=10, pady=10)
         self.comp_frame.pack(fill="both", expand=True, pady=10)
         self.check_vars={}
@@ -110,6 +183,8 @@ class PatientApp:
         self.modify_btn.pack(side="left", padx=5)
         self.save_btn=tk.Button(btn_f, text="Save Changes", command=self.save_data, bg="#2ecc71", fg="white", width=15)
         self.save_btn.pack(side="left", padx=5)
+        self.remove_btn=tk.Button(btn_f, text="Remove Patient", command=self.remove_patient, bg="#e74c3c", fg="white", width=15)
+        self.remove_btn.pack(side="left", padx=5)
         # RIGHT PANEL (Tabs)
         self.notebook=ttk.Notebook(self.root, width=450)
         self.notebook.pack(side="right", fill="both", padx=10, pady=10)
@@ -176,7 +251,7 @@ class PatientApp:
                     self.feat_tree.insert("", "end", values=(f"--- {current_group} ---", ""), tags=('group',))
                 val=row_data[col]
                 formatted_val=f"{float(val):.4f}" if isinstance(val, (int, float)) else val
-                self.feat_tree.insert("", "end", value=(col, formatted_val))
+                self.feat_tree.insert("", "end", values=(col, formatted_val))
         self.feat_tree.tag_configure('group', font=('Arial', 10, "bold"), background="#f0f0f0")
 
     def refresh_media(self, patient_id):
@@ -188,39 +263,51 @@ class PatientApp:
         img_dir=self.get_pz_path(IMAGES_BASE, patient_id)
 
         if report_dir and os.path.exists(report_dir):
-            examined_str=str(self.df[self.df['ID']==int(patient_id)].iloc[0]['Examined_Files']) if int(patient_id) in self.df['ID'].values else ""
-            examined_list=examined_str.split("|")
+            rows=self.df[self.df["ID"]==int(patient_id)]
+            exam_str=str(rows.iloc[0]["Examined_Files"]) if not rows.empty else ""
+            exam_list=exam_str.split("|") if exam_str else []
             for f in sorted(os.listdir(report_dir)):
-                if os.path.isfile(os.path.join(report_dir, f)):
-                    f_f=tk.Frame(self.doc_list_frame)
-                    f_f.pack(fill="x")
-                    v=tk.BooleanVar(value=f in examined_list)
-                    self.examined_files_vars[f]=v
-                    tk.Checkbutton(f_f, variable=v).pack(side="left")
-                    btn=tk.Button(f_f, text=f, relief="flat", fg="blue", cursor="hand2", anchor="w")
-                    btn.pack(side="left", fill="x")
-                    btn.bind("<Button-1>", lambda e, p=os.path.join(report_dir, f): self.open_file(p))
+                if not os.path.isfile(os.path.join(report_dir, f)):
+                    continue
+                f_f=tk.Frame(self.doc_list_frame)
+                f_f.pack(fill="x")
+                v=tk.BooleanVar(value=f in exam_list)
+                v.trace("w", lambda *args, pid=patient_id: self._on_examined_change(pid))
+                self.examined_files_vars[f]=v
+                tk.Checkbutton(f_f, variable=v).pack(side="left")
+                btn=tk.Button(f_f, text=f, relief="flat", fg="blue", cursor="hand2", anchor="w")
+                btn.pack(side="left", fill="x")
+                btn.bind("<Button-1>", lambda e, p=os.path.join(report_dir, f): self.open_file(p))
         
-        if img_dir and os.path.exists(img_dir):
-            valid_ext=('.jpg', '.jpeg', '.png', '.bmp')
+        if img_dir and os.path.exists(img_dir) and HAS_PIL:
+            valid_ext=('.jpg', '.jpeg', '.png')
             for f in sorted(os.listdir(img_dir)):
-                if f.lower().endswith(valid_ext):
-                    p=os.path.join(img_dir, f)
-                    try:
-                        img=Image.open(p)
-                        img.thumbnail((180, 180))
-                        photo=ImageTk.PhotoImage(img)
-                        self.image_previews.append(photo)
-                        lbl=tk.Label(self.img_container, image=photo, relief="ridge", cursor="hand2")
-                        lbl.pack(pady=5)
-                        lbl.bind("<Button-1>", lambda e, path=p: self.open_file(path))
-                        tk.Label(self.img_container, text=f, bg="#e0e0e0", font=("Arial", 8)).pack()
-                    except: pass
+                if not f.lower().endswith(valid_ext):
+                    continue
+                p=os.path.join(img_dir, f)
+                try:
+                    img=Image.open(p)
+                    img.thumbnail((180, 180))
+                    photo=ImageTk.PhotoImage(img)
+                    self.image_previews.append(photo)
+                    lbl=tk.Label(self.img_container, image=photo, relief="ridge", cursor="hand2")
+                    lbl.pack(pady=5)
+                    lbl.bind("<Button-1>", lambda e, path=p: self.open_file(path))
+                    tk.Label(self.img_container, text=f, bg="#e0e0e0", font=("Arial", 8)).pack()
+                except Exception: 
+                    pass
 
         self.doc_list_frame.update_idletasks()
         self.doc_canvas.config(scrollregion=self.doc_canvas.bbox("all"))
         self.img_container.update_idletasks()
         self.img_canvas.config(scrollregion=self.img_canvas.bbox("all"))
+        self._on_examined_change(patient_id)
+        
+    def _on_examined_change(self, patient_id):
+        examined_str="|".join(
+            f for f, v in self.examined_files_vars.items() if v.get()
+        )
+        self.refresh_auto_status(patient_id, examined_str)
 
     def create_comp_widgets(self):
         r=0
@@ -258,7 +345,8 @@ class PatientApp:
 
     def on_patient_select(self, event):
         idx=self.listbox.curselection()
-        if not idx: return
+        if not idx: 
+            return
         pid=int(self.listbox.get(idx[0]))
         row=self.df[self.df['ID']==pid].iloc[0]
 
@@ -270,36 +358,44 @@ class PatientApp:
         
         self.id_entry.insert(0, str(row['ID']))
         self.op_var.set(row['Requires_Op']=="Yes")
-        self.report_var.set(bool(row['Report_Analysis']))
-        self.cfd_var.set(bool(row['CFD_Simulations']))
-        self.img_var.set(bool(row['Image_Processing']))
+        labeling_raw=row.get("Labeling", "")
+        self.labeling_var.set(
+            str(labeling_raw).lower()=="true" or labeling_raw is True
+        )
         
         comps=str(row['Complications']).split(", ")
         for c in comps:
             if c in self.check_vars: self.check_vars[c].set(True)
         self.notes_text.insert("1.0", str(row['Notes']))
         self.refresh_features(pid)
-        self.set_form_state("disabled")
         self.refresh_media(pid)
-
+        self.set_form_state("disabled")
+        
     def save_data(self):
         new_id_raw=self.id_entry.get().strip()
-        if not new_id_raw: return
+        if not new_id_raw: 
+            return
         new_id=int(new_id_raw)
 
         examined=[f for f, v in self.examined_files_vars.items() if v.get()]
         examined_str="|".join(examined)
         comp_list=[n for n, v in self.check_vars.items() if v.get()] if self.op_var.get() else []
         
+        report_ok=detect_report_status(new_id, examined_str)
+        cfd_ok=detect_cfd_status(new_id)
+        img_ok=detect_image_status(new_id)
+        
         data={
             "ID": new_id, "Requires_Op": "Yes" if self.op_var.get() else "No", "Complications": ", ".join(comp_list),
-            "Notes": self.notes_text.get("1.0", tk.END).strip(), "Report_Analysis": self.report_var.get(),
-            "CFD_Simulations": self.cfd_var.get(), "Image_Processing": self.img_var.get(),
+            "Notes": self.notes_text.get("1.0", tk.END).strip(), "Report_Analysis": report_ok,
+            "CFD_Simulations": cfd_ok, "Image_Processing": img_ok,
+            "Labeling": self.labeling_var.get(),
             "Examined_Files": examined_str
         }
 
         if self.original_id is not None:
-            if self.original_id != new_id: self.df=self.df[self.df['ID'] != self.original_id]
+            if self.original_id != new_id: 
+                self.df=self.df[self.df['ID'] != self.original_id]
             self.df=self.df[self.df['ID'] != new_id]
         
         self.df=pd.concat([self.df, pd.DataFrame([data])], ignore_index=True)
@@ -313,18 +409,20 @@ class PatientApp:
 
     def handle_op_toggle(self):
         st="normal" if (self.op_var.get() and self.save_btn['state']=='normal') else "disabled"
-        for cb in self.check_widgets: cb.config(state=st)
+        for cb in self.check_widgets: 
+            cb.config(state=st)
 
     def set_form_state(self, state):
-        widgets_to_toggle=[self.id_entry, self.op_check, self.notes_text, self.report_cb, self.cfd_cb, self.img_cb]
+        widgets_to_toggle=[self.id_entry, self.op_check, self.notes_text,self.labeling_cb]
         for w in widgets_to_toggle:
-            w.config(state="normal" if state=="disabled" and w==self.modify_btn else state)
+            w.config(state=state)
         comp_state=state if (state=="normal" and self.op_var.get()) else "disabled"
         for child in self.comp_frame.winfo_children():
             if isinstance(child, tk.Checkbutton):
                 child.config(state=comp_state)
         self.save_btn.config(state=state)
         self.modify_btn.config(state="normal" if state=="disabled" and self.listbox.curselection() else "disabled")
+        self.remove_btn.config(state="normal" if state=="disabled" and self.original_id is not None else "disabled")
         self.update_colors()
 
     def update_colors(self):
@@ -347,8 +445,8 @@ class PatientApp:
         r,y,g=0,0,0
         for pid in s_ids:
             row=self.df[self.df['ID']==pid].iloc[0]
-            count=sum([1 for c in [row['Report_Analysis'], row['CFD_Simulations'], row['Image_Processing']] if str(c).lower()=='true' or c==True])
-            color="red" if count==0 else "orange" if count < 3 else "green"
+            count=sum([1 for c in [row['Report_Analysis'], row['CFD_Simulations'], row['Image_Processing'], row.get("Labeling", False)] if str(c).lower()=='true' or c==True])
+            color="red" if count==0 else "orange" if count < 4 else "green"
             if color=="red": r += 1
             elif color=="orange": y += 1
             else: g += 1
@@ -358,6 +456,24 @@ class PatientApp:
                 self.listbox.itemconfig(tk.END, {'fg': color})
         self.stats_label.config(text=f"To Do {r}  |  Doing {y}  |  Complete {g}")
 
+    def remove_patient(self):
+        if self.original_id is None:
+            return
+        confirmed=messagebox.askyesno(
+            "Remove Patient",
+            f"Permanently remove Patient {self.original_id} from the database?\n\nThis cannot be undone.",
+            icon="warning"
+        )
+        if not confirmed:
+            return
+        self.df=self.df[self.df["ID"]!=self.original_id].reset_index(drop=True)
+        self.df.to_csv(FILE_NAME, index=False)
+        self.original_id=None
+        self.clear_fields()
+        self.header_var.set("Select a Patient")
+        self.set_form_state("disabled")
+        self.refresh_list()
+        
     def enter_modify_mode(self):
         self.set_form_state("normal")
         self.header_var.set(f"Modifying Patient: {self.original_id}")
@@ -373,8 +489,12 @@ class PatientApp:
     def clear_fields(self):
         self.id_entry.delete(0, tk.END)
         self.op_var.set(False)
+        self.labeling_var.set(False)
         self.notes_text.delete("1.0", tk.END)
-        for var in list(self.check_vars.values()) + [self.report_var, self.cfd_var, self.img_var]: var.set(False)
+        for var in list(self.check_vars.values()):
+            var.set(False)
+        for lbl in [self.report_status_lbl, self.cfd_status_lbl, self.img_status_lbl]:
+            lbl.config(text="x", fg="#c0392b")
 
 if __name__=="__main__":
     root=tk.Tk()
