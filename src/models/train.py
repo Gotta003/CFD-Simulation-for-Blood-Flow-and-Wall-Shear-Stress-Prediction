@@ -1,8 +1,8 @@
+from src.models.registry import COMPLICATIONS, COMPLICATION_KEYS, HAS_XGB, HAS_TORCH
 import argparse
 import os
 import numpy as np
 from typing import List, Dict
-from src.models import COMPLICATION_KEYS
 from src.models.xgboost import XGBoostConfig
 from src.models.utils import load_tabular_data, tabular_dataset
 from src.models.xgboost import training_xgboost

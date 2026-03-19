@@ -1,9 +1,9 @@
+from src.models.registry import COMPLICATIONS, COMPLICATION_KEYS, HAS_XGB, HAS_TORCH
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict
 import os
 import joblib
 import numpy as np
-from src.models import HAS_XGB, COMPLICATIONS, COMPLICATION_KEYS
 from src.models.utils import safe_cv_folds, print_fold_summary, print_summary
 
 from sklearn.impute import SimpleImputer

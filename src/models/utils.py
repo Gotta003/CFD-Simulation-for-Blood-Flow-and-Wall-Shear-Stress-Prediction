@@ -1,9 +1,7 @@
+from src.models.registry import COMPLICATIONS, COMPLICATION_KEYS, HAS_XGB, HAS_TORCH
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple
-from src.models.gnn_pinn import GNNPINNConfig
-from src.models.xgboost import XGBoostConfig
-from src.models import COMPLICATIONS, COMPLICATION_KEYS
 
 def update_class_weights(y: Dict[str, np.ndarray]) -> None:
     """
@@ -20,7 +18,7 @@ def update_class_weights(y: Dict[str, np.ndarray]) -> None:
             COMPLICATIONS[k]['class_weight']=round(n_neg/n_pos, 3)
             print(f"{k:25s}: {n_pos} pos/{n_neg} neg -> class_weight={COMPLICATIONS[k]['class_weight']:.2f}")
             
-def load_tabular_data(cfg: XGBoostConfig | GNNPINNConfig) -> Tuple[np.ndarray, Dict[str, np.ndarray], List[str]]:
+def load_tabular_data(cfg) -> Tuple[np.ndarray, Dict[str, np.ndarray], List[str]]:
     """
     Load and merge features CSV and labels CSV on patient_id. Converts features from raw file
     
@@ -48,7 +46,7 @@ def load_tabular_data(cfg: XGBoostConfig | GNNPINNConfig) -> Tuple[np.ndarray, D
     update_class_weights(y)
     return X, y, feat_cols
     
-def tabular_dataset(X: np.ndarray, y: Dict[str, np.ndarray], cfg: XGBoostConfig | GNNPINNConfig) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+def tabular_dataset(X: np.ndarray, y: Dict[str, np.ndarray], cfg) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
     """
     Compose per-complication (structure X,y) pairs ready for model. 
 

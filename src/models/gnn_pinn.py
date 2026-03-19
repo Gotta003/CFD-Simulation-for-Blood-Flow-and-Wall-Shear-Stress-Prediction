@@ -1,3 +1,4 @@
+from src.models.registry import COMPLICATIONS, COMPLICATION_KEYS, HAS_XGB, HAS_TORCH
 from dataclasses import dataclass, field
 from typing import List
 

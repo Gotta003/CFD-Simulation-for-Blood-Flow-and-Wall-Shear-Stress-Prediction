@@ -65,7 +65,7 @@ def main():
         shap.waterfall_plot(
             shap.Explanation(
                 values=sv[idx],
-                base_values=explainer.expected_value if not isinstance(explainer.expected_value, list) else explainer.expected_value[1]
+                base_values=explainer.expected_value if not isinstance(explainer.expected_value, list) else explainer.expected_value[1],
                 data=X_transformed[idx],
                 feature_names=feat_names
             ),
