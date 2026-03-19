@@ -107,7 +107,8 @@ success "All packages are installed correctly"
 info "Creating project folder structure..."
 mkdir -p data/{vtp_files,reports,labels}
 mkdir -p src/{extraction,models,explainability,visualization}
-mkdir -p outputs/{features,predictions,shap_plots,mesh_heatmaps}
+mkdir -p outputs/{features,models,shap_plots,mesh_heatmaps}
+mkdir -p outputs/models/{xgboost, gnn_pinn}
 mkdir -p notebooks
 touch src/__init__.py
 touch src/extraction/__init__.py

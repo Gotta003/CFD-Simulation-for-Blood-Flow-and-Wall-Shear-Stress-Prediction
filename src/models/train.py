@@ -2,59 +2,21 @@ import argparse
 import os
 import numpy as np
 from typing import List, Dict
-
-try:
-    import xgboost as xgb
-    HAS_XGB=True
-except ImportError:
-    HAS_XGB=False
-    
-try:
-    import torch
-    import torch.nn as nn 
-    HAS_TORCH=True
-except ImportError:
-    HAS_TORCH=False
-
-COMPLICATIONS: Dict[str, dict]={
-    "endoleak_type1": {
-        "description": "Endoleak Type I",
-        # ---- TO DEFINE ----
-        "physical_driver": "pressure",
-        "at_risk_feature": "pressure_pct_at_risk",
-        # ---- TO DEFINE ----
-        "class_weight": 1.0,
-    },
-    "endoleak_type2": {
-        "description": "Endoleak Type II",
-        # ---- TO DEFINE ----
-        "physical_driver": "ecap",
-        "at_risk_feature": "ecap_pct_at_risk",
-        # ---- TO DEFINE ----
-        "class_weight": 1.0,
-    },
-    "endoleak_type3": {
-        "description": "Endoleak Type III",
-        # ---- TO DEFINE ----
-        "physical_driver": "wss",
-        "at_risk_feature": "wss_pct_at_risk",
-        # ---- TO DEFINE ----
-        "class_weight": 1.0,
-    },
-}
-
-COMPLICATION_KEYS: List[str]=list(COMPLICATIONS.keys())
+from src.models import COMPLICATION_KEYS
+from src.models.xgboost import XGBoostConfig
+from src.models.utils import load_tabular_data, tabular_dataset
+from src.models.xgboost import training_xgboost
 
 def main():
     parser=argparse.ArgumentParser(description="Train EVAR risk predictor")
     parser.add_argument("--model", default="gnn_pinn", choices=["gnn_pinn", "xgboost"])
     parser.add_argument("--features", required=True)
     parser.add_argument("--labels", required=True)
+    parser.add_argument("--out", default=None)
+    parser.add_argument("--cv", type=int, default=5)
     parser.add_argument("--vtp-dir", default="data/vtp_files/", help="Spatial Features Directory")
-    parser.add_argument("--epochs", type=int, default=300)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--batch-size", type=int, default=1)
-    parser.add_argument("--out", default="outputs/predictions/model.pkl")
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--complications", nargs="+", default=COMPLICATION_KEYS, choices=COMPLICATION_KEYS)
     parser.add_argument("--device", default="auto")
     args=parser.parse_args()
     
@@ -71,6 +33,17 @@ def main():
         training_gnnpinn()
         return
     #OTHER MODELS DOWN BELOW
-    if args.model=="xgboost":
+    elif args.model=="xgboost":
+        cfg=XGBoostConfig(
+            features_path=args.features,
+            labels_path=args.labels,
+            out_path=args.out or "outputs/models/xgboost/",
+            cv_folds=args.cv
+        )
+        X, y, feat_cols=load_tabular_data(cfg)
+        dataset=tabular_dataset(X, y, cfg)
+        training_xgboost(dataset, cfg, feat_cols)
+        return
+    
 if __name__=="__main__":
     main()
