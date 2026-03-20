@@ -47,6 +47,5 @@ python patients_management.py
 #	--features outputs/features/features.csv \
 #	--labels data/labels/outcomes.csv \
 #	--out outputs/models/xgboost \
-#	--cv 5
 
 #python patients_management.py
