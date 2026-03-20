@@ -41,10 +41,9 @@ def detect_segmentation_status(patient_id: int) -> bool:
         return False
     if not os.path.exists(SEG_BASE):
         return False
-    for fname in os.listdir(SEG_BASE):
-        if fname.lower().endswith(".vtp") and id_str in fname.lower():
-            return True
-    return False
+    
+    patient_folder= os.path.join(SEG_BASE, id_str)
+    return os.path.isdir(patient_folder)
 
 def detect_report_status(patient_id: int, examined_files_str: str) -> bool:
     base=REPORTS_BASE
@@ -66,12 +65,63 @@ def detect_cfd_status(patient_id: int) -> bool:
         id_str=f"pz{int(patient_id):03d}"
     except (ValueError, TypeError):
         return False
-    if not os.path.exists(VTP_BASE):
+    
+    #modificato 
+    path_to_check= os.path.join(SEG_BASE, id_str, "Simulations", id_str)
+    if not os.path.exists(path_to_check):
+        return False 
+    
+    try: 
+        for item in os.listdir(path_to_check):
+            item_path = os.path.join(path_to_check, item)
+            if os.path.isdir(item_path) and item.endswith("-procs"):
+                if item[:2].isdigit():
+                    return True
+    except OSError:
         return False
-    for fname in os.listdir(VTP_BASE):
-        if fname.lower().endswith(".vtp") and id_str in fname.lower():
-            return True
+
     return False
+
+#nuova funzione 
+def detect_simulation_status(patient_id: int) -> str:
+    try:
+        id_str = f"pz{int(patient_id):03d}"
+    except (ValueError, TypeError):
+        return "not available"
+
+    patient_main_folder = os.path.join(SEG_BASE, id_str)
+    sim_path = os.path.join(patient_main_folder, "Simulations", id_str)
+
+    if not os.path.exists(patient_main_folder):
+        return "not available"
+
+    try:
+        main_contents = os.listdir(patient_main_folder)
+        proc_folders = []
+        if os.path.exists(sim_path):
+            proc_folders = [d for d in os.listdir(sim_path) 
+                           if d.endswith("-procs") and os.path.isdir(os.path.join(sim_path, d))]
+
+        if not proc_folders:
+            if len(main_contents) > 0:
+                return "To Run"
+            else:
+                return "not available"
+
+        target_dir = os.path.join(sim_path, sorted(proc_folders)[-1])
+        files = os.listdir(target_dir)
+
+        if any(f.lower().endswith(".vtp") for f in files):
+            return "Post processed"
+
+        if "result_960.vtu" in files:
+            return "Completed: post processing required"
+            
+        return "Running"
+
+    except OSError:
+        return "not available"
+    
 
 def detect_image_status(patient_id: int) -> bool:
     try:
@@ -137,6 +187,9 @@ class PatientApp:
         report_ok=detect_report_status(patient_id, examined_files_str)
         cfd_ok=detect_cfd_status(patient_id)
         img_ok=detect_image_status(patient_id)
+        #nuovo
+        sim_status=detect_simulation_status(patient_id)
+
         self.seg_var.set(seg_ok)
         self.report_var.set(report_ok)
         self.cfd_var.set(cfd_ok)
@@ -145,6 +198,9 @@ class PatientApp:
         self._set_status_label(self.report_status_lbl, report_ok)
         self._set_status_label(self.cfd_status_lbl, cfd_ok)
         self._set_status_label(self.img_status_lbl, img_ok)
+        self._set_status_label(self.cfd_status_lbl, cfd_ok)
+        #nuovo
+        self.cfd_text_lbl.config(text=f"({sim_status})")
 
     def setup_ui(self):
         # LEFT SIDEBAR (IDs + Filters)
@@ -220,11 +276,14 @@ class PatientApp:
             tk.Label(parent, text=text, font=("Arial", 10)).grid(row=row, column=0, sticky="w", padx=(0, 6))
             lbl=tk.Label(parent, text=STATUS_FAIL, fg=COLOR_FAIL, font=("Arial", 11, "bold"), width=3)
             lbl.grid(row=row, column=1, sticky="w")
-            return lbl
-        self.seg_status_lbl=_status_row(wf_frame, "Segmentation", 0)
-        self.report_status_lbl=_status_row(wf_frame, "Report Analysis", 1)
-        self.cfd_status_lbl=_status_row(wf_frame, "CFD Simulations", 2)
-        self.img_status_lbl=_status_row(wf_frame, "Image Processing", 3)
+            #per aggiungere stato della simulazione 
+            txt_lbl = tk.Label(parent, text="", font=("Arial", 9, "italic"), fg="#7f8c8d", anchor="w")
+            txt_lbl.grid(row=row, column=2, sticky="w", padx=10)
+            return lbl, txt_lbl
+        self.seg_status_lbl, _=_status_row(wf_frame, "Segmentation", 0)
+        self.report_status_lbl, _=_status_row(wf_frame, "Report Analysis", 1)
+        self.cfd_status_lbl, self.cfd_text_lbl=_status_row(wf_frame, "CFD Simulations", 2)
+        self.img_status_lbl, _=_status_row(wf_frame, "Image Processing", 3)
         
         #Labeling
         label_frame=tk.LabelFrame(self.center_panel, text="Labeling", padx=10, pady=8)
@@ -693,7 +752,8 @@ class PatientApp:
             var.set(False)
         for lbl in [self.seg_status_lbl, self.report_status_lbl, self.cfd_status_lbl, self.img_status_lbl]:
             self._set_status_label(lbl, False)
-
+        if hasattr(self, "cfd_text_lbl"):
+            self.cfd_text_lbl.config(text="")
 if __name__=="__main__":
     root=tk.Tk()
     app=PatientApp(root)
