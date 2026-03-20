@@ -8,6 +8,7 @@ EMPTY_ROW={
     "Requires_Op": "No",
     "Complications": "",
     "Notes": "",
+    "Segmentation": False,
     "Report_Analysis": False,
     "CFD_Simulations": False,
     "Image_Processing": False,

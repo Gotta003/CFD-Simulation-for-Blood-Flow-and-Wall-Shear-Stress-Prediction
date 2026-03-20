@@ -7,6 +7,7 @@ import subprocess
 import platform
 
 FILE_NAME="./data/labels/outcomes.csv"
+SEG_BASE="../simulation_db/"
 REPORTS_BASE="../report/"
 IMAGES_BASE="./outputs/mesh_heatmaps/"
 FEATURES_FILE="./outputs/features/features.csv"
@@ -27,6 +28,23 @@ COMP_STRUCTURE={
     "Endoleak": {"Type I": ["Type IA", "Type IB"], "Type II": [], "Type III": []},
     "Other": ["Graft_Migration", "Thrombosis", "Reintervention", "Rupture"]
 }
+
+STATUS_OK="OK"
+STATUS_FAIL="x"
+COLOR_OK="#2ecc71"
+COLOR_FAIL="#c0392b"
+
+def detect_segmentation_status(patient_id: int) -> bool:
+    try:
+        id_str=f"pz{int(patient_id):03d}"
+    except (ValueError, TypeError):
+        return False
+    if not os.path.exists(SEG_BASE):
+        return False
+    for fname in os.listdir(SEG_BASE):
+        if fname.lower().endswith(".vtp") and id_str in fname.lower():
+            return True
+    return False
 
 def detect_report_status(patient_id: int, examined_files_str: str) -> bool:
     base=REPORTS_BASE
@@ -73,10 +91,21 @@ class PatientApp:
         
         self.original_id=None 
         self.image_previews=[] 
+        self._status_cache={}
         self.load_databases()
         self.setup_ui()
         self.set_form_state("disabled")
+        self._build_all_rows()
         self.refresh_list()
+
+    def _update_row_colors(self, pid):
+        if pid not in self._row_widgets:
+            return
+        row_f, id_lbl, sep, sq_labels=self._row_widgets[pid]
+        st=self._status_cache.get(pid, {})
+        for key, sq in sq_labels:
+            color=st.get("overall") if key=="overall" else self._rect_color(st.get(key, False))
+            sq.config(bg=color)
 
     def load_databases(self):
         if os.path.exists(FILE_NAME):
@@ -88,6 +117,7 @@ class PatientApp:
             self.feat_df=pd.read_csv(FEATURES_FILE)
         else:
             self.feat_df=pd.DataFrame()
+        self._rebuild_cache()
 
     def get_pz_path(self, base, patient_id):
         """Standardizes path to pz001 format."""
@@ -96,42 +126,80 @@ class PatientApp:
             return os.path.join(base, folder_name)
         except: return None
 
+    def _set_status_label(self, lbl, ok: bool):
+        if ok:
+            lbl.config(text=STATUS_OK, fg=COLOR_OK, font=("Arial", 10, "bold"), relief="flat", bg="#e8f8f0", padx=6)
+        else:
+            lbl.config(text=STATUS_FAIL, fg=COLOR_FAIL, font=("Arial", 10, "bold"), relief="flat", bg="#fde8e8", padx=6)
+
     def refresh_auto_status(self, patient_id, examined_files_str=""):
+        seg_ok=detect_segmentation_status(patient_id)
         report_ok=detect_report_status(patient_id, examined_files_str)
         cfd_ok=detect_cfd_status(patient_id)
         img_ok=detect_image_status(patient_id)
+        self.seg_var.set(seg_ok)
         self.report_var.set(report_ok)
         self.cfd_var.set(cfd_ok)
         self.img_var.set(img_ok)
-        def _indicator(val):
-            return ("OK", "#2ecc71") if val else ("x", "#c0392b")
-        
-        for var_ok, lbl in [
-            (report_ok, self.report_status_lbl),
-            (cfd_ok, self.cfd_status_lbl),
-            (img_ok, self.img_status_lbl)
-        ]:
-            sym, col=_indicator(var_ok)
-            lbl.config(text=sym, fg=col)
+        self._set_status_label(self.seg_status_lbl, seg_ok)
+        self._set_status_label(self.report_status_lbl, report_ok)
+        self._set_status_label(self.cfd_status_lbl, cfd_ok)
+        self._set_status_label(self.img_status_lbl, img_ok)
 
     def setup_ui(self):
         # LEFT SIDEBAR (IDs + Filters)
         sidebar=tk.Frame(self.root, width=280, bg="#f4f4f4", padx=10, pady=10)
         sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+        
+        #Search
         tk.Label(sidebar, text="Search ID:", bg="#f4f4f4", font=("Arial", 10, "bold")).pack(anchor="w")
         self.search_var=tk.StringVar()
-        self.search_var.trace("w", lambda *args: self.refresh_list())
-        tk.Entry(sidebar, textvariable=self.search_var).pack(fill="x", pady=5)
+        self.search_var.trace("w", lambda *args: self._debounce_refresh())
+        tk.Entry(sidebar, textvariable=self.search_var, font=("Arial", 10)).pack(fill="x", pady=(2,8))
+        
+        #Colour Filter
+        tk.Label(sidebar, text="Filter by Status", bg="#f4f4f4", font=("Arial", 9, "bold")).pack(anchor="w")
+        filt_frame=tk.Frame(sidebar, bg="#f4f4f4")
+        filt_frame.pack(fill="x", pady=(2,8))
         self.filter_var=tk.StringVar(value="All")
-        filter_menu=ttk.Combobox(sidebar, textvariable=self.filter_var, values=["All", "Red (Not Started)", "Yellow (In Progress)", "Green (Complete)"], state="readonly")
-        filter_menu.pack(fill="x", pady=5)
-        filter_menu.bind("<<ComboboxSelected>>", lambda e: self.refresh_list())
-        self.listbox=tk.Listbox(sidebar, font=("Arial", 10, "bold"), selectmode="single")
-        self.listbox.pack(fill="both", expand=True, pady=5)
-        self.listbox.bind("<<ListboxSelect>>", self.on_patient_select)
-        self.stats_label=tk.Label(sidebar, text="", bg="#f4f4f4", font=("Arial", 9))
-        self.stats_label.pack(fill="x", pady=5)
-        tk.Button(sidebar, text="+ Add Patient", command=self.prepare_new_patient, bg="#3498db", fg="white", font=("Arial", 10, "bold")).pack(fill="x")
+        filter_defs=[
+            ("All", "#555555"),
+            ("Red", "#e74c3c"),
+            ("Yellow", "#e67e22"),
+            ("Green", "#27ae60")
+        ]
+        self._filter_btns={}
+        for label, color in filter_defs:
+            b=tk.Button(filt_frame, text=label, bg=color, fg="white", font=("Arial", 8, "bold"), relief="raised", bd=2, command=lambda l=label: self._set_filter(l))
+            b.pack(side="left", expand=True, fill="x", padx=2)
+            self._filter_btns[label]=b
+        
+        #Patient List
+        list_frame=tk.Frame(sidebar, bg="white", relief="sunken", bd=1)
+        list_frame.pack(fill="both", expand=True, pady=(0,8))
+        self._list_canvas=tk.Canvas(list_frame, bg="white", highlightthickness=0)
+        list_scroll=ttk.Scrollbar(list_frame, orient="vertical", command=self._list_canvas.yview)
+        self._list_canvas.configure(yscrollcommand=list_scroll.set)
+        list_scroll.pack(side="right", fill="y")
+        self._list_canvas.pack(side="left", fill="both", expand=True)
+        self._list_inner=tk.Frame(self._list_canvas, bg="white")
+        self._list_canvas_window=self._list_canvas.create_window(
+            (0,0), window=self._list_inner, anchor="nw"
+        )
+        self._list_inner.bind("<Configure>", lambda e: self._list_canvas.configure(scrollregion=self._list_canvas.bbox("all")))
+        self._list_canvas.bind("<Configure>", lambda e: self._list_canvas.itemconfig(self._list_canvas_window, width=e.width))
+        
+        self._list_canvas.bind("<Enter>", lambda e: self._list_canvas.bind_all("<MouseWheel>", self._on_mousewheel))
+        self._list_canvas.bind("<Leave>", lambda e: self._list_canvas.unbind_all("<MouseWheel>"))
+        self._patient_rows=[]
+        
+        # Stats + Add Button
+        self.stats_label=tk.Label(sidebar, text="", bg="#f4f4f4", font=("Arial", 8), anchor="w")
+        self.stats_label.pack(fill="x", pady=(0,4))
+        tk.Button(sidebar, text="+ Add Patient", command=self.prepare_new_patient, bg="#3498db", fg="white", font=("Arial", 10, "bold"), relief="flat", pady=6).pack(fill="x")
+        self._set_filter("All")
+        
         # CENTER PANEL (Data)
         self.center_panel=tk.Frame(self.root, padx=20, pady=20, borderwidth=1, relief="sunken")
         self.center_panel.pack(side="left", fill="both", expand=True)
@@ -143,18 +211,20 @@ class PatientApp:
         #Workflow Status
         wf_frame=tk.LabelFrame(self.center_panel, text="Workflow Status", padx=10, pady=8)
         wf_frame.pack(fill="x", pady=10)
+        self.seg_var=tk.BooleanVar()
         self.report_var=tk.BooleanVar()
         self.cfd_var=tk.BooleanVar()
         self.img_var=tk.BooleanVar()
         
         def _status_row(parent, text, row):
             tk.Label(parent, text=text, font=("Arial", 10)).grid(row=row, column=0, sticky="w", padx=(0, 6))
-            lbl=tk.Label(parent, text="x", fg="#c0392b", font=("Arial", 11, "bold"), width=3)
+            lbl=tk.Label(parent, text=STATUS_FAIL, fg=COLOR_FAIL, font=("Arial", 11, "bold"), width=3)
             lbl.grid(row=row, column=1, sticky="w")
             return lbl
-        self.report_status_lbl=_status_row(wf_frame, "Report Analysis", 0)
-        self.cfd_status_lbl=_status_row(wf_frame, "CFD Simulations", 1)
-        self.img_status_lbl=_status_row(wf_frame, "Image Processing", 2)
+        self.seg_status_lbl=_status_row(wf_frame, "Segmentation", 0)
+        self.report_status_lbl=_status_row(wf_frame, "Report Analysis", 1)
+        self.cfd_status_lbl=_status_row(wf_frame, "CFD Simulations", 2)
+        self.img_status_lbl=_status_row(wf_frame, "Image Processing", 3)
         
         #Labeling
         label_frame=tk.LabelFrame(self.center_panel, text="Labeling", padx=10, pady=8)
@@ -342,34 +412,6 @@ class PatientApp:
         if platform.system()=='Darwin': subprocess.call(('open', path))
         elif platform.system()=='Windows': os.startfile(path)
         else: subprocess.call(('xdg-open', path))
-
-    def on_patient_select(self, event):
-        idx=self.listbox.curselection()
-        if not idx: 
-            return
-        pid=int(self.listbox.get(idx[0]))
-        row=self.df[self.df['ID']==pid].iloc[0]
-
-        self.original_id=pid
-        self.header_var.set(f"Viewing Patient: {pid}")
-        self.id_entry.config(state="normal")
-        self.notes_text.config(state="normal")
-        self.clear_fields()
-        
-        self.id_entry.insert(0, str(row['ID']))
-        self.op_var.set(row['Requires_Op']=="Yes")
-        labeling_raw=row.get("Labeling", "")
-        self.labeling_var.set(
-            str(labeling_raw).lower()=="true" or labeling_raw is True
-        )
-        
-        comps=str(row['Complications']).split(", ")
-        for c in comps:
-            if c in self.check_vars: self.check_vars[c].set(True)
-        self.notes_text.insert("1.0", str(row['Notes']))
-        self.refresh_features(pid)
-        self.refresh_media(pid)
-        self.set_form_state("disabled")
         
     def save_data(self):
         new_id_raw=self.id_entry.get().strip()
@@ -381,13 +423,16 @@ class PatientApp:
         examined_str="|".join(examined)
         comp_list=[n for n, v in self.check_vars.items() if v.get()] if self.op_var.get() else []
         
+        seg_ok=detect_segmentation_status(new_id)
         report_ok=detect_report_status(new_id, examined_str)
         cfd_ok=detect_cfd_status(new_id)
         img_ok=detect_image_status(new_id)
         
         data={
             "ID": new_id, "Requires_Op": "Yes" if self.op_var.get() else "No", "Complications": ", ".join(comp_list),
-            "Notes": self.notes_text.get("1.0", tk.END).strip(), "Report_Analysis": report_ok,
+            "Notes": self.notes_text.get("1.0", tk.END).strip(), 
+            "Segmentation": seg_ok, 
+            "Report_Analysis": report_ok,
             "CFD_Simulations": cfd_ok, "Image_Processing": img_ok,
             "Labeling": self.labeling_var.get(),
             "Examined_Files": examined_str
@@ -405,6 +450,11 @@ class PatientApp:
         messagebox.showinfo("Saved", f"Patient {new_id} updated.")
         self.original_id=new_id
         self.set_form_state("disabled")
+        self._invalidate_patient(new_id)
+        if new_id not in self._row_widgets:
+            self._build_all_rows()
+        else:
+            self._update_row_colors(new_id)
         self.refresh_list()
 
     def handle_op_toggle(self):
@@ -421,7 +471,7 @@ class PatientApp:
             if isinstance(child, tk.Checkbutton):
                 child.config(state=comp_state)
         self.save_btn.config(state=state)
-        self.modify_btn.config(state="normal" if state=="disabled" and self.listbox.curselection() else "disabled")
+        self.modify_btn.config(state="normal" if state=="disabled" and self.original_id is not None else "disabled")
         self.remove_btn.config(state="normal" if state=="disabled" and self.original_id is not None else "disabled")
         self.update_colors()
 
@@ -435,26 +485,171 @@ class PatientApp:
                 else:
                     child.config(fg="black" if is_op_req else "gray") 
 
+    def _on_mousewheel(self, event):
+        self._list_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+    def _set_filter(self, label):
+        self.filter_var.set(label)
+        for lbl, btn in self._filter_btns.items():
+            btn.config(relief="sunken" if lbl==label else "raised")
+        self.refresh_list()
+        
+    def _bool_val(self, v) -> bool:
+        return str(v).lower()=="true" or v is True
+    
+    def _rect_color(self, ok:bool) -> str:
+        return "#2ecc71" if ok else "#dde0e3"
+    
+    def _overall_color(self, count: int) -> str:
+        if count==0: return "#e74c3c"
+        if count<5: return "#e67e22"
+        return "#27ae60"
+
+    def _debounce_refresh(self):
+        if self._refresh_job:
+            self.root.after_cancel(self._refresh_job)
+        self._refresh_job=self.root.after(200, self.refresh_list)
+
+    def _rebuild_cache(self):
+        self._status_cache={}
+        if self.df.empty:
+            return
+        for _, row in self.df.iterrows():
+            try:
+                pid=int(row["ID"])
+            except (ValueError, TypeError):
+                continue
+            seg_ok=self._bool_val(row["Segmentation"])
+            rep_ok=self._bool_val(row["Report_Analysis"])
+            cfd_ok=self._bool_val(row["CFD_Simulations"])
+            img_ok=self._bool_val(row["Image_Processing"])
+            lbl_ok=self._bool_val(row.get("Labeling", False))
+            count=sum([seg_ok, rep_ok, cfd_ok, img_ok, lbl_ok])
+            self._status_cache[pid]={
+                "seg": seg_ok,
+                "rep": rep_ok,
+                "cfd": cfd_ok,
+                "img": img_ok,
+                "lbl": lbl_ok,
+                "count": count,
+                "overall": self._overall_color(count)
+            }
+        
+    def _invalidate_patient(self, pid: int):
+        rows=self.df[self.df["ID"]==pid]
+        if rows.empty:
+            self._status_cache.pop(pid, None)
+            return
+        row=rows.iloc[0]
+        seg_ok=self._bool_val(row["Segmentation"])
+        rep_ok=self._bool_val(row["Report_Analysis"])
+        cfd_ok=self._bool_val(row["CFD_Simulations"])
+        img_ok=self._bool_val(row["Image_Processing"])
+        lbl_ok=self._bool_val(row.get("Labeling", False))
+        count=sum([seg_ok, rep_ok, cfd_ok, img_ok, lbl_ok])
+        self._status_cache[pid]={
+            "seg": seg_ok,
+            "rep": rep_ok,
+            "cfd": cfd_ok,
+            "img": img_ok,
+            "lbl": lbl_ok,
+            "count": count,
+            "overall": self._overall_color(count)
+        }
+
+    def _build_all_rows(self):
+        for w in self._list_inner.winfo_children():
+            w.destroy()
+        self._patient_rows=[]
+        self._row_widgets={}
+        for pid in sorted(self._status_cache.keys()):
+            st=self._status_cache[pid]
+            sep=tk.Frame(self._list_inner, bg="#eeeeee", height=1)
+            row_f=tk.Frame(self._list_inner, bg="white", cursor="hand2", pady=3, padx=4)
+            id_lbl=tk.Label(row_f, text=str(pid), font=("Arial", 10, "bold"), anchor="w")
+            id_lbl.pack(side="left", fill="x", expand=True)
+            rect_specs=["seg", "rep", "cfd", "img", "lbl", "overall"]
+            sq_labels=[]
+            for key in reversed(rect_specs):
+                color=st["overall"] if key=="overall" else self._rect_color(st[key])
+                sq=tk.Label(row_f, bg=color, width=3, relief="flat")
+                sq.pack(side="right", padx=2, ipady=6)
+                sq_labels.append((key, sq))
+                
+            def _click(e, p=pid, rf=row_f):
+                self._select_patient_row(p, rf)
+            for w in [row_f, id_lbl] + list(row_f.winfo_children()):
+                w.bind("<Button-1>", _click)
+            self._row_widgets[pid]=(row_f, id_lbl, sep, sq_labels)
+            self._patient_rows.append((pid, row_f))
+            
     def refresh_list(self):
-        self.listbox.delete(0, tk.END)
-        term=self.search_var.get()
+        if not hasattr(self, "_row_widgets"):
+            return
+        term=self.search_var.get().lower()
         s_filt=self.filter_var.get()
-        f_df=self.df[self.df['ID'].astype(str).str.contains(term)].copy()
-        s_ids=sorted(f_df['ID'].unique(), key=int)
         
         r,y,g=0,0,0
-        for pid in s_ids:
-            row=self.df[self.df['ID']==pid].iloc[0]
-            count=sum([1 for c in [row['Report_Analysis'], row['CFD_Simulations'], row['Image_Processing'], row.get("Labeling", False)] if str(c).lower()=='true' or c==True])
-            color="red" if count==0 else "orange" if count < 4 else "green"
-            if color=="red": r += 1
-            elif color=="orange": y += 1
+        for pid, row_f in self._patient_rows:
+            st=self._status_cache.get(pid)
+            if st is None:
+                continue
+
+            overall=st["overall"]
+            if overall=="#e74c3c": r += 1
+            elif overall=="#e67e22": y += 1
             else: g += 1
             
-            if s_filt=="All" or (s_filt.startswith("Red") and color=="red") or (s_filt.startswith("Yellow") and color=="orange") or (s_filt.startswith("Green") and color=="green"):
-                self.listbox.insert(tk.END, pid)
-                self.listbox.itemconfig(tk.END, {'fg': color})
-        self.stats_label.config(text=f"To Do {r}  |  Doing {y}  |  Complete {g}")
+            _,_,sep,_=self._row_widgets[pid]
+            match_search=(term=="" or term in str(pid))
+            match_filter=(
+                (term=="" or term in str(pid)) and (s_filt=="All" or (s_filt=="Red" and overall=="#e74c3c") or (s_filt=="Yellow" and overall=="#e67e22") or (s_filt=="Green" and overall=="#27ae60"))
+            )
+            visible=match_search and match_filter
+            
+            if visible:
+                sep.pack(fill="x")
+                row_f.pack(fill="x", side="top")
+            else:
+                row_f.pack_forget()
+                sep.pack_forget()
+        
+        self.stats_label.config(text=f"To Do {r}  |  Doing {y}  |  CompleteS {g}")
+    
+    def _select_patient_row(self, pid, row_frame):
+        SEL_BG="#d6eaf8"
+        for _, rf in self._patient_rows:
+            rf.config(bg="white")
+            for child in rf.winfo_children():
+                if isinstance(child, tk.Label) and child.cget("width")==0:
+                    child.config(bg="white")
+        row_frame.config(bg=SEL_BG)
+        for child in row_frame.winfo_children():
+            if isinstance(child, tk.Label) and child.cget("width")==0:
+                child.config(bg=SEL_BG)
+        self._load_patient(pid)
+        
+    def _load_patient(self, pid):
+        if pid not in self.df["ID"].values:
+            return
+        row=self.df[self.df["ID"]==pid].iloc[0]
+        self.original_id=pid
+        self.header_var.set(f"Viewing Patient: {pid}")
+        self.id_entry.config(state="normal")
+        self.notes_text.config(state="normal")
+        self.clear_fields()
+        self.id_entry.insert(0, str(row["ID"]))
+        self.op_var.set(row["Requires_Op"]=="Yes")
+        labeling_raw=row.get("Labeling", "")
+        self.labeling_var.set(str(labeling_raw).lower()=="true" or labeling_raw is True)
+        comps=str(row["Complications"]).split(", ")
+        for c in comps:
+            if c in self.check_vars:
+                self.check_vars[c].set(True)
+        self.notes_text.insert("1.0", str(row["Notes"]))
+        self.refresh_features(pid)
+        self.refresh_media(pid)
+        self.set_form_state("disabled")
 
     def remove_patient(self):
         if self.original_id is None:
@@ -466,8 +661,11 @@ class PatientApp:
         )
         if not confirmed:
             return
+        removed_id=self.original_id
         self.df=self.df[self.df["ID"]!=self.original_id].reset_index(drop=True)
         self.df.to_csv(FILE_NAME, index=False)
+        self._status_cache.pop(removed_id, None)
+        self._build_all_rows()
         self.original_id=None
         self.clear_fields()
         self.header_var.set("Select a Patient")
@@ -493,8 +691,8 @@ class PatientApp:
         self.notes_text.delete("1.0", tk.END)
         for var in list(self.check_vars.values()):
             var.set(False)
-        for lbl in [self.report_status_lbl, self.cfd_status_lbl, self.img_status_lbl]:
-            lbl.config(text="x", fg="#c0392b")
+        for lbl in [self.seg_status_lbl, self.report_status_lbl, self.cfd_status_lbl, self.img_status_lbl]:
+            self._set_status_label(lbl, False)
 
 if __name__=="__main__":
     root=tk.Tk()
