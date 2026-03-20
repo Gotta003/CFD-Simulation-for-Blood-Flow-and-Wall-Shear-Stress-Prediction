@@ -13,7 +13,6 @@ def main():
     parser.add_argument("--features", required=True)
     parser.add_argument("--labels", required=True)
     parser.add_argument("--out", default=None)
-    parser.add_argument("--cv", type=int, default=5)
     parser.add_argument("--vtp-dir", default="data/vtp_files/", help="Spatial Features Directory")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--complications", nargs="+", default=COMPLICATION_KEYS, choices=COMPLICATION_KEYS)
@@ -38,11 +37,10 @@ def main():
             features_path=args.features,
             labels_path=args.labels,
             out_path=args.out or "outputs/models/xgboost/",
-            cv_folds=args.cv
         )
-        X, y, feat_cols=load_tabular_data(cfg)
-        dataset=tabular_dataset(X, y, cfg)
-        training_xgboost(dataset, cfg, feat_cols)
+        load_tabular_data()
+        tabular_dataset()
+        training_xgboost()
         return
     
 if __name__=="__main__":
