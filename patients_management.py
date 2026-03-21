@@ -279,7 +279,7 @@ class PatientApp:
         #Substatus Filter   ,, , 
         tk.Label(sidebar, text="Filter by Step:", bg="#f4f4f4", font=("Arial", 9, "bold")).pack(anchor="w", pady=(5,0))
         self.sub_filter_var=tk.StringVar(value="All")
-        sub_options=["All", "Segmentation: Missing", "Segmentation: OK", "Report Analysis: Missing", "Report Analysis: OK", "CFD Simulations: Missing", "CFD Simulations: OK", "Image Processing: Missing", "Image Processing: OK", "Labeling: Missing", "Labeling: OK"]
+        sub_options=["All", "Segmentation: Missing", "Segmentation: OK", "Report Analysis: Missing", "Report Analysis: Doing","Report Analysis: OK", "CFD Simulations: Missing", "CFD Simulations; Running", "CFD Simuations: To Run", "CFD Simulations: Post Processing Req", "CFD Simulations: OK", "Image Processing: Missing", "Image Processing: OK", "Labeling: Missing", "Labeling: OK"]
         self.sub_filter_combo=ttk.Combobox(sidebar, textvariable=self.sub_filter_var, values=sub_options, state="readonly")
         self.sub_filter_combo.pack(fill="x", pady=(2,8))
         self.sub_filter_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh_list())
@@ -465,21 +465,38 @@ class PatientApp:
         
         if img_dir and os.path.exists(img_dir) and HAS_PIL:
             valid_ext=('.jpg', '.jpeg', '.png')
-            for f in sorted(os.listdir(img_dir)):
-                if not f.lower().endswith(valid_ext):
-                    continue
-                p=os.path.join(img_dir, f)
-                try:
-                    img=Image.open(p)
-                    img.thumbnail((180, 180))
-                    photo=ImageTk.PhotoImage(img)
-                    self.image_previews.append(photo)
-                    lbl=tk.Label(self.img_container, image=photo, relief="ridge", cursor="hand2")
-                    lbl.pack(pady=5)
-                    lbl.bind("<Button-1>", lambda e, path=p: self.open_file(path))
-                    tk.Label(self.img_container, text=f, bg="#e0e0e0", font=("Arial", 8)).pack()
-                except Exception: 
-                    pass
+            images=[f for f in os.listdir(img_dir) if f.lower().endswith(valid_ext)]
+            groups={}
+            for f in sorted(images):
+                parts=f.replace(".png","").replace(".jpg","").split("_")
+                category=parts[1].upper() if len(parts)>1 else "OTHER"
+                if category not in groups:
+                    groups[category]=[]
+                groups[category].append(f)
+
+            for cat, names in groups.items():
+                cat_frame=tk.Frame(self.img_container, bg="#f0f0f0", pady=5)
+                cat_frame.pack(fill="x", pady=(10, 2))
+                tk.Label(cat_frame, text=f" {cat} ", bg="#f0f0f0", font=("Arial", 9, "bold"), fg="#2c3e50").pack(anchor="w")
+
+                grid_frame=tk.Frame(self.img_container, bg="#e0e0e0")
+                grid_frame.pack(fill="x", padx=5)
+                cols=2
+                for i, f in enumerate(names):
+                    p=os.path.join(img_dir, f)
+                    try:
+                        img=Image.open(p)
+                        img.thumbnail((200,200))
+                        photo=ImageTk.PhotoImage(img)
+                        self.image_previews.append(photo)
+                        img_box=tk.Frame(grid_frame, bg="#e0e0e0", padx=5, pady=5)
+                        img_box.grid(row=i//cols, column=i%cols, sticky="nw")
+                        lbl=tk.Label(img_box, image=photo, relief="ridge", bd=2, cursor="hand2")
+                        lbl.pack()
+                        lbl.bind("<Button-1>", lambda e, path=p: self.open_file(path))
+                        tk.Label(img_box, text=f[:20], bg="#e0e0e0", font=("Arial", 7)).pack()
+                    except Exception as e:
+                        print(f"Error loading image {p}: {e}")
 
         self.doc_list_frame.update_idletasks()
         self.doc_canvas.config(scrollregion=self.doc_canvas.bbox("all"))
@@ -748,13 +765,25 @@ class PatientApp:
             )
             match_sub=True
             if sub_filt!="All":
-                mapping={"Segmentation": "seg", "Report Analysis": "rep", "CFD Simulations": "cfd", "Image Processing": "img", "Labeling": "lbl"}
-                step_name=sub_filt.split(":")[0].strip()
-                expected_ok="OK" in sub_filt
-                cache_key=mapping.get(step_name)
-                if cache_key:
-                    actual_ok=st.get(cache_key, False)
-                    match_sub=(actual_ok==expected_ok)
+                if "CFD:" in sub_filt:
+                    target=sub_filt.split(":")[1].strip()
+                    f_map = {
+                        "Post Processing Req": "Completed: post processing required",
+                        "Post Processed": "Post processed"
+                    } 
+                    search_status=f_map.get(target, target)
+                    match_sub=(st.get("sim_text") == search_status)
+                else:
+                    mapping={"Segmentation": "seg", "Report Analysis": "rep", "CFD Simulations": "cfd", "Image Processing": "img", "Labeling": "lbl"}
+                    step_name=sub_filt.split(":")[0].strip()
+                    expected_ok="OK" in sub_filt
+                    cache_key=mapping.get(step_name)
+                    if cache_key:
+                        actual_ok=st.get(cache_key, False)
+                        if expected_ok:
+                            match_sub=(actual_ok is True)
+                        else:
+                            match_sub=(actual_ok is False or actual_ok=="#e67e22")
 
             if match_search and match_filter and match_sub:
                 row_f, _, sep, _=self._row_widgets[pid]
