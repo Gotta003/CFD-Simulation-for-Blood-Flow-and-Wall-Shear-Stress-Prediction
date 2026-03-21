@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import subprocess
 import platform
+import shutil
 
 FILE_NAME="./data/labels/outcomes.csv"
 SEG_BASE="../simulation_db/"
@@ -33,6 +34,33 @@ STATUS_OK="OK"
 STATUS_FAIL="x"
 COLOR_OK="#2ecc71"
 COLOR_FAIL="#c0392b"
+
+SIM_COLOR_MAP={
+    "To Run": "#c0392b",
+    "Post processed": "#27ae60",
+    "Completed: post processing required": "#e67e22",
+    "Running": "#3498db",
+    "not available": "#dde0e3"
+}
+
+def run_post_processing(patient_id, vtp_dir):
+    id_str=f"pz{int(patient_id):03d}"
+    print(f"--- Extract features for {id_str} ---")
+    try:
+        subprocess.run(["python", "src/extraction/extract_features.py", "--input", vtp_dir, "--out", FEATURES_FILE], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error during feature extraction for {id_str}: {e}")
+
+    print(f"--- Generating tmaps for {id_str} ---")
+    dest_dir=os.path.join(IMAGES_BASE, id_str)
+    os.makedirs(dest_dir, exist_ok=True)
+    for vtp in os.listdir(vtp_dir):
+        if vtp.lower().endswith(".vtp"):
+            src_path=os.path.join(vtp_dir, vtp)
+            try:
+                subprocess.run(["python", "src/visualization/visualize.py", "--vtp", src_path, "--out", dest_dir, "--all_fields"], check=True)
+            except subprocess.CalledProcessError as e:
+                print(f"Error generating tmap for {vtp} of {id_str}: {e}")
 
 def detect_segmentation_status(patient_id: int) -> bool:
     try:
@@ -66,7 +94,6 @@ def detect_cfd_status(patient_id: int) -> bool:
     except (ValueError, TypeError):
         return False
     
-    #modificato 
     path_to_check= os.path.join(SEG_BASE, id_str, "Simulations", id_str)
     if not os.path.exists(path_to_check):
         return False 
@@ -82,7 +109,6 @@ def detect_cfd_status(patient_id: int) -> bool:
 
     return False
 
-#nuova funzione 
 def detect_simulation_status(patient_id: int) -> str:
     try:
         id_str = f"pz{int(patient_id):03d}"
@@ -110,8 +136,19 @@ def detect_simulation_status(patient_id: int) -> str:
 
         target_dir = os.path.join(sim_path, sorted(proc_folders)[-1])
         files = os.listdir(target_dir)
-
-        if any(f.lower().endswith(".vtp") for f in files):
+        vtp_files=[f for f in files if f.lower().endswith(".vtp")]
+        if vtp_files:
+            patient_vtp_dir=os.path.join(VTP_BASE, id_str)
+            os.makedirs(patient_vtp_dir, exist_ok=True)
+            new_file_copy=False
+            for vtp in vtp_files:
+                src_path=os.path.join(target_dir, vtp)
+                dst_path=os.path.join(patient_vtp_dir, vtp)
+                if not os.path.exists(dst_path):
+                    shutil.copy2(src_path, dst_path)
+                    new_file_copy=True
+            if new_file_copy:
+                run_post_processing(patient_id, patient_vtp_dir)
             return "Post processed"
 
         if "result_960.vtu" in files:
@@ -191,7 +228,6 @@ class PatientApp:
         report_ok=detect_report_status(patient_id, examined_files_str)
         cfd_ok=detect_cfd_status(patient_id)
         img_ok=detect_image_status(patient_id)
-        #nuovo
         sim_status=detect_simulation_status(patient_id)
 
         self.seg_var.set(seg_ok)
@@ -202,9 +238,9 @@ class PatientApp:
         self._set_status_label(self.report_status_lbl, report_ok)
         self._set_status_label(self.cfd_status_lbl, cfd_ok)
         self._set_status_label(self.img_status_lbl, img_ok)
-        self._set_status_label(self.cfd_status_lbl, cfd_ok)
-        #nuovo
-        self.cfd_text_lbl.config(text=f"({sim_status})")
+     
+        text_color=SIM_COLOR_MAP.get(sim_status, "#7f8c8d")
+        self.cfd_text_lbl.config(text=f"({sim_status})", fg=text_color)
 
     def setup_ui(self):
         # LEFT SIDEBAR (IDs + Filters)
@@ -385,18 +421,21 @@ class PatientApp:
         if self.feat_df.empty:
             return
         id_str=f"pz{int(patient_id):03d}"
-        patient_row=self.feat_df[self.feat_df.iloc[:,0].str.startswith(id_str, na=False)]
+        patient_row=self.feat_df[self.feat_df.iloc[:,0].str.contains(id_str, na=False)]
         if not patient_row.empty:
             row_data=patient_row.iloc[0]
             current_group=""
             for col in self.feat_df.columns[1:]:
-                category=col.split('_'[0].upper())
-                if category!=current_group:
-                    current_group=category
+                parts=col.split('_')
+                new_group=parts[0].upper()
+                if new_group!=current_group:
+                    current_group=new_group
                     self.feat_tree.insert("", "end", values=(f"--- {current_group} ---", ""), tags=('group',))
+
                 val=row_data[col]
                 formatted_val=f"{float(val):.4f}" if isinstance(val, (int, float)) else val
-                self.feat_tree.insert("", "end", values=(col, formatted_val))
+                display_name=" ".join(parts[1:]).upper() if len(parts)>1 else col
+                self.feat_tree.insert("", "end", values=(display_name, formatted_val))
         self.feat_tree.tag_configure('group', font=('Arial', 10, "bold"), background="#f0f0f0")
 
     def refresh_media(self, patient_id):
@@ -555,8 +594,9 @@ class PatientApp:
             if isinstance(child, tk.Checkbutton):
                 child.config(state=comp_state)
         self.save_btn.config(state=state)
-        self.modify_btn.config(state="normal" if state=="disabled" and self.original_id is not None else "disabled")
-        self.remove_btn.config(state="normal" if state=="disabled" and self.original_id is not None else "disabled")
+        can_action=(state=="disabled" and self.original_id is not None)
+        self.modify_btn.config(state="normal" if can_action else "disabled")
+        self.remove_btn.config(state="normal" if can_action else "disabled")
         self.update_colors()
 
     def update_colors(self):
@@ -581,7 +621,9 @@ class PatientApp:
     def _bool_val(self, v) -> bool:
         return str(v).lower()=="true" or v is True
     
-    def _rect_color(self, ok:bool) -> str:
+    def _rect_color(self, ok) -> str:
+        if isinstance(ok, str) and ok.startswith("#"):
+            return ok
         return "#2ecc71" if ok else "#dde0e3"
     
     def _overall_color(self, count: int) -> str:
@@ -603,39 +645,25 @@ class PatientApp:
                 pid=int(row["ID"])
             except (ValueError, TypeError):
                 continue
-            #seg_ok=self._bool_val(row["Segmentation"])
-            #rep_ok=self._bool_val(row["Report_Analysis"])
-            #cfd_ok=self._bool_val(row["CFD_Simulations"])
-            #img_ok=self._bool_val(row["Image_Processing"])
-            #lbl_ok=self._bool_val(row.get("Labeling", False))
-            #count=sum([seg_ok, rep_ok, cfd_ok, img_ok, lbl_ok])
-            #self._status_cache[pid]={
-            #    "seg": seg_ok,
-            #    "rep": rep_ok,
-            #   "cfd": cfd_ok,
-            #    "img": img_ok,
-            #    "lbl": lbl_ok,
-            #    "count": count,
-            #    "overall": self._overall_color(count)
-            #}
+            sim_status=detect_simulation_status(pid)
+            cfd_rect_color=SIM_COLOR_MAP.get(sim_status, "#dde0e3")
             seg=detect_segmentation_status(pid)
             rep=detect_report_status(pid, str(row.get("Examined_Files", "")))
-            cfd=detect_cfd_status(pid)
             img=detect_image_status(pid)
             lbl=self._bool_val(row.get("Labeling", False))
 
             self.df.at[index, "Segmentation"]=seg 
             self.df.at[index, "Report_Analysis"]=rep
-            self.df.at[index, "CFD_Simulations"]=cfd
             self.df.at[index, "Image_Processing"]=img
 
-            count=sum([seg, rep, cfd, img, lbl])
+            count=sum([seg, rep, (sim_status=="Post processed"), img, lbl])
             self._status_cache[pid]={
                 "seg": seg,
                 "rep": rep,
-                "cfd": cfd,
+                "cfd": cfd_rect_color,
                 "img": img,
                 "lbl": lbl,
+                "sim_text": sim_status,
                 "count": count,
                 "overall": self._overall_color(count)
             }
@@ -646,18 +674,20 @@ class PatientApp:
             self._status_cache.pop(pid, None)
             return
         row=rows.iloc[0]
+        sim_status=detect_simulation_status(pid)
+        cfd_rect_color=SIM_COLOR_MAP.get(sim_status, "#dde0e3")
         seg_ok=self._bool_val(row["Segmentation"])
         rep_ok=self._bool_val(row["Report_Analysis"])
-        cfd_ok=self._bool_val(row["CFD_Simulations"])
         img_ok=self._bool_val(row["Image_Processing"])
         lbl_ok=self._bool_val(row.get("Labeling", False))
-        count=sum([seg_ok, rep_ok, cfd_ok, img_ok, lbl_ok])
+        count=sum([seg_ok, rep_ok, (sim_status=="Post processed"), img_ok, lbl_ok])
         self._status_cache[pid]={
             "seg": seg_ok,
             "rep": rep_ok,
-            "cfd": cfd_ok,
+            "cfd": cfd_rect_color,
             "img": img_ok,
             "lbl": lbl_ok,
+            "sim_text": sim_status,
             "count": count,
             "overall": self._overall_color(count)
         }

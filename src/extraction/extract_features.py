@@ -226,17 +226,20 @@ def main():
         print("No features extracted.")
         return
 
-    df=pd.DataFrame(all_features)
-    before=df.shape[1]
+    new_df=pd.DataFrame(all_features)
+    if os.path.exists(args.out):
+        existing_df=pd.read_csv(args.out)
+        ids_to_remove=new_df["patient_id"].tolist()
+        existing_df=existing_df[~existing_df["patient_id"].isin(ids_to_remove)]
+        df=pd.concat([existing_df, new_df], ignore_index=True)
+    else:
+        df=new_df
     df=df.dropna(axis=1, how="all")
-    dropped=before-df.shape[1]
-    if dropped:
-        print(f"\nDropped {dropped} all-NaN columns")
+    df=df.sort_values(by="patient_id")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     df.to_csv(args.out, index=False)
     print(f"\nFeatures saved in {args.out}")
-    print(f"Shape: {df.shape[0]} patients x {df.shape[1]-1} features")
 
     if validation_failures:
         print(f"\n{len(validation_failures)} patients failed with out-of.range values:")
