@@ -143,7 +143,12 @@ def detect_simulation_status(patient_id: int) -> str:
             new_file_copy=False
             for vtp in vtp_files:
                 src_path=os.path.join(target_dir, vtp)
-                dst_path=os.path.join(patient_vtp_dir, vtp)
+                if vtp.startswith(id_str):
+                    new_filename=vtp
+                else:
+                    new_filename=f"{id_str}_{vtp}"
+                    
+                dst_path=os.path.join(patient_vtp_dir, new_filename)
                 if not os.path.exists(dst_path):
                     shutil.copy2(src_path, dst_path)
                     new_file_copy=True
@@ -418,10 +423,16 @@ class PatientApp:
 
     def refresh_features(self, patient_id):
         self.feat_tree.delete(*self.feat_tree.get_children())
+        if os.path.exists(FEATURES_FILE):
+            try:
+                self.feat_df=pd.read_csv(FEATURES_FILE)
+            except Exception as e:
+                print(f"Error loading features file: {e}")
+                return
         if self.feat_df.empty:
             return
         id_str=f"pz{int(patient_id):03d}"
-        patient_row=self.feat_df[self.feat_df.iloc[:,0].str.contains(id_str, na=False)]
+        patient_row = self.feat_df[self.feat_df.iloc[:,0].astype(str).str.contains(id_str, na=False)]
         if not patient_row.empty:
             row_data=patient_row.iloc[0]
             current_group=""
