@@ -43,6 +43,12 @@ SIM_COLOR_MAP={
     "not available": "#dde0e3"
 }
 
+REPORT_COLOR_MAP={
+    "OK": "#27ae60",
+    "Doing": "#e67e22",
+    "Missing": "#dde0e3"
+}
+
 def run_post_processing(patient_id, vtp_dir):
     id_str=f"pz{int(patient_id):03d}"
     print(f"--- Extract features for {id_str} ---")
@@ -78,15 +84,21 @@ def detect_report_status(patient_id: int, examined_files_str: str) -> bool:
     try:
         folder=os.path.join(base, f"pz{int(patient_id):03d}")
     except (ValueError, TypeError):
-        return False
+        return "Missing"
     
     if not os.path.exists(folder):
-        return False
+        return "Missing"
 
     all_files=[f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
-    
+    #if not all_files:
+    #    return "Missing"
+
     examined=set(examined_files_str.split("|")) if examined_files_str else set()
-    return all(f in examined for f in all_files)
+    if all(f in examined for f in all_files):
+        return "OK"
+    if any(f in examined for f in all_files):
+        return "Doing"
+    return "Missing"
 
 def detect_cfd_status(patient_id: int) -> bool:
     try:
@@ -206,6 +218,8 @@ class PatientApp:
     def load_databases(self):
         if os.path.exists(FILE_NAME):
             self.df=pd.read_csv(FILE_NAME).fillna("")
+            if "Report_Analysis" in self.df.columns:
+                self.df["Report_Analysis"]=self.df["Report_Analysis"].astype(object)
         else:
             self.df=pd.DataFrame(columns=["ID", "Requires_Op", "Complications", "Notes", "Examined_Files"])
         
@@ -222,25 +236,30 @@ class PatientApp:
             return os.path.join(base, folder_name)
         except: return None
 
-    def _set_status_label(self, lbl, ok: bool):
-        if ok:
-            lbl.config(text=STATUS_OK, fg=COLOR_OK, font=("Arial", 10, "bold"), relief="flat", bg="#e8f8f0", padx=6)
+    def _set_status_label(self, lbl, status):
+        is_ok = (status is True or status == "OK")
+        is_doing = (status == "Doing")
+        
+        if is_ok:
+            lbl.config(text=STATUS_OK, fg=COLOR_OK, bg="#e8f8f0")
+        elif is_doing:
+            lbl.config(text="...", fg="#e67e22", bg="#fef5e7")
         else:
-            lbl.config(text=STATUS_FAIL, fg=COLOR_FAIL, font=("Arial", 10, "bold"), relief="flat", bg="#fde8e8", padx=6)
+            lbl.config(text=STATUS_FAIL, fg=COLOR_FAIL, bg="#fde8e8")
 
     def refresh_auto_status(self, patient_id, examined_files_str=""):
         seg_ok=detect_segmentation_status(patient_id)
-        report_ok=detect_report_status(patient_id, examined_files_str)
+        report_status=detect_report_status(patient_id, examined_files_str)
         cfd_ok=detect_cfd_status(patient_id)
         img_ok=detect_image_status(patient_id)
         sim_status=detect_simulation_status(patient_id)
 
         self.seg_var.set(seg_ok)
-        self.report_var.set(report_ok)
+        self.report_var.set(report_status=="OK")
         self.cfd_var.set(cfd_ok)
         self.img_var.set(img_ok)
         self._set_status_label(self.seg_status_lbl, seg_ok)
-        self._set_status_label(self.report_status_lbl, report_ok)
+        self._set_status_label(self.report_status_lbl, report_status)
         self._set_status_label(self.cfd_status_lbl, cfd_ok)
         self._set_status_label(self.img_status_lbl, img_ok)
      
@@ -284,7 +303,14 @@ class PatientApp:
         #Substatus Filter   ,, , 
         tk.Label(sidebar, text="Filter by Step:", bg="#f4f4f4", font=("Arial", 9, "bold")).pack(anchor="w", pady=(5,0))
         self.sub_filter_var=tk.StringVar(value="All")
-        sub_options=["All", "Segmentation: Missing", "Segmentation: OK", "Report Analysis: Missing", "Report Analysis: Doing","Report Analysis: OK", "CFD Simulations: Missing", "CFD Simulations; Running", "CFD Simuations: To Run", "CFD Simulations: Post Processing Req", "CFD Simulations: OK", "Image Processing: Missing", "Image Processing: OK", "Labeling: Missing", "Labeling: OK"]
+        sub_options=[
+            "All",
+            "Segmentation: Missing", "Segmentation: OK",
+            "Report Analysis: Missing", "Report Analysis: Doing", "Report Analysis: OK",
+            "CFD Simulations: Missing", "CFD Simulations: To Run", "CFD Simulations: Running", "CFD Simulations: Post Processing Req", "CFD Simulations: OK" ,
+            "Image Processing: Missing", "Image Processing: OK",
+            "Labeling: Missing", "Labeling: OK"
+        ]
         self.sub_filter_combo=ttk.Combobox(sidebar, textvariable=self.sub_filter_var, values=sub_options, state="readonly")
         self.sub_filter_combo.pack(fill="x", pady=(2,8))
         self.sub_filter_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh_list())
@@ -519,15 +545,15 @@ class PatientApp:
         examined_str="|".join(
             f for f, v in self.examined_files_vars.items() if v.get()
         )
-        report_ok=detect_report_status(patient_id, examined_str)
-        self.refresh_auto_status(patient_id, examined_str)
         idx=self.df.index[self.df["ID"]==int(patient_id)]
         if not idx.empty:
+            report_status=detect_report_status(patient_id, examined_str)
             self.df.at[idx[0], "Examined_Files"]=examined_str
-            self.df.at[idx[0], "Report_Analysis"]=report_ok
+            self.df.at[idx[0], "Report_Analysis"]=report_status
             self.df.to_csv(FILE_NAME, index=False)
             self._invalidate_patient(int(patient_id))
             self._update_row_colors(int(patient_id))
+            self.refresh_auto_status(patient_id, examined_str)
             self.refresh_list()
 
     def create_comp_widgets(self):
@@ -652,6 +678,8 @@ class PatientApp:
     def _rect_color(self, ok) -> str:
         if isinstance(ok, str) and ok.startswith("#"):
             return ok
+        if ok in REPORT_COLOR_MAP:
+            return REPORT_COLOR_MAP[ok]
         return "#2ecc71" if ok else "#dde0e3"
     
     def _overall_color(self, count: int) -> str:
@@ -676,18 +704,18 @@ class PatientApp:
             sim_status=detect_simulation_status(pid)
             cfd_rect_color=SIM_COLOR_MAP.get(sim_status, "#dde0e3")
             seg=detect_segmentation_status(pid)
-            rep=detect_report_status(pid, str(row.get("Examined_Files", "")))
+            rep_status=detect_report_status(pid, str(row.get("Examined_Files", "")))
             img=detect_image_status(pid)
             lbl=self._bool_val(row.get("Labeling", False))
 
             self.df.at[index, "Segmentation"]=seg 
-            self.df.at[index, "Report_Analysis"]=rep
+            self.df.at[index, "Report_Analysis"]=rep_status
             self.df.at[index, "Image_Processing"]=img
 
-            count=sum([seg, rep, (sim_status=="Post processed"), img, lbl])
+            count=sum([seg, rep_status=="OK", (sim_status=="Post processed"), img, lbl])
             self._status_cache[pid]={
                 "seg": seg,
-                "rep": rep,
+                "rep": rep_status,
                 "cfd": cfd_rect_color,
                 "img": img,
                 "lbl": lbl,
@@ -705,13 +733,13 @@ class PatientApp:
         sim_status=detect_simulation_status(pid)
         cfd_rect_color=SIM_COLOR_MAP.get(sim_status, "#dde0e3")
         seg_ok=self._bool_val(row["Segmentation"])
-        rep_ok=self._bool_val(row["Report_Analysis"])
+        rep_status=detect_report_status(pid, str(row.get("Examined_Files", "")))
         img_ok=self._bool_val(row["Image_Processing"])
         lbl_ok=self._bool_val(row.get("Labeling", False))
-        count=sum([seg_ok, rep_ok, (sim_status=="Post processed"), img_ok, lbl_ok])
+        count=sum([seg_ok, rep_status=="OK", (sim_status=="Post processed"), img_ok, lbl_ok])
         self._status_cache[pid]={
             "seg": seg_ok,
-            "rep": rep_ok,
+            "rep": rep_status,
             "cfd": cfd_rect_color,
             "img": img_ok,
             "lbl": lbl_ok,
@@ -771,30 +799,37 @@ class PatientApp:
             else: g += 1
             
             match_search=(term=="" or term in str(pid).lower())
-            match_filter=(
-                (term=="" or term in str(pid)) and (s_filt=="All" or (s_filt=="Red" and overall=="#e74c3c") or (s_filt=="Yellow" and overall=="#e67e22") or (s_filt=="Green" and overall=="#27ae60"))
-            )
+            match_filter=(s_filt=="All" or (s_filt=="Red" and overall=="#e74c3c") or (s_filt=="Yellow" and overall=="#e67e22") or (s_filt=="Green" and overall=="#27ae60"))
             match_sub=True
             if sub_filt!="All":
-                if "CFD:" in sub_filt:
-                    target=sub_filt.split(":")[1].strip()
-                    f_map = {
-                        "Post Processing Req": "Completed: post processing required",
-                        "Post Processed": "Post processed"
-                    } 
-                    search_status=f_map.get(target, target)
-                    match_sub=(st.get("sim_text") == search_status)
-                else:
-                    mapping={"Segmentation": "seg", "Report Analysis": "rep", "CFD Simulations": "cfd", "Image Processing": "img", "Labeling": "lbl"}
-                    step_name=sub_filt.split(":")[0].strip()
-                    expected_ok="OK" in sub_filt
-                    cache_key=mapping.get(step_name)
-                    if cache_key:
-                        actual_ok=st.get(cache_key, False)
-                        if expected_ok:
-                            match_sub=(actual_ok is True)
-                        else:
-                            match_sub=(actual_ok is False or actual_ok=="#e67e22")
+                try:
+                    parts=sub_filt.split(":")
+                    step_name=parts[0].strip()
+                    status_goal=parts[1].strip()
+                    if step_name=="CFD Simulations":
+                        cfd_map={
+                            "Missing": "not available",
+                            "To Run": "To Run",
+                            "Running": "Running",
+                            "Post Processing Req": "Completed: post processing required",
+                            "OK": "Post processed"
+                        }
+                        match_sub=(st.get("sim_text")==cfd_map.get(status_goal))
+                    elif step_name=="Report Analysis":
+                        current_status=st.get("rep", False)
+                        match_sub=(current_status==status_goal)
+                    else:
+                        mapping={
+                            "Segmentation": "seg",
+                            "Image Processing": "img",
+                            "Labeling": "lbl"
+                        }
+                        cache_key=mapping.get(step_name)
+                        if cache_key:
+                            actual_val=st.get(cache_key, False)
+                            match_sub=(actual_val is True) if status_goal=="OK" else (actual_val is False)
+                except (IndexError, ValueError):
+                    match_sub=True
 
             if match_search and match_filter and match_sub:
                 row_f, _, sep, _=self._row_widgets[pid]
