@@ -32,7 +32,7 @@ COMP_STRUCTURE={
 
 STATUS_OK="OK"
 STATUS_FAIL="x"
-COLOR_OK="#2ecc71"
+COLOR_OK="#27ae60"
 COLOR_FAIL="#c0392b"
 
 SIM_COLOR_MAP={
@@ -300,7 +300,7 @@ class PatientApp:
             b.pack(side="left", expand=True, fill="x", padx=2)
             self._filter_btns[label]=b
         
-        #Substatus Filter   ,, , 
+        #Substatus Filter 
         tk.Label(sidebar, text="Filter by Step:", bg="#f4f4f4", font=("Arial", 9, "bold")).pack(anchor="w", pady=(5,0))
         self.sub_filter_var=tk.StringVar(value="All")
         sub_options=[
@@ -314,6 +314,15 @@ class PatientApp:
         self.sub_filter_combo=ttk.Combobox(sidebar, textvariable=self.sub_filter_var, values=sub_options, state="readonly")
         self.sub_filter_combo.pack(fill="x", pady=(2,8))
         self.sub_filter_combo.bind("<<ComboboxSelected>>", lambda e: self.refresh_list())
+
+        #Adversary Events Filter
+        tk.Label(sidebar, text="Filter by Adversary Events:", bg="#f4f4f4", font=("Arial", 9, "bold")).pack(anchor="w", pady=(5,0))
+        self.sub_filter_var=tk.StringVar(value="Not Selected")
+        adv_options=["Not Selected", "Requires Operation"] + [comp for comp_list in COMP_STRUCTURE.values() for comp in (comp_list if isinstance(comp_list, list) else comp_list.keys())]
+        self.sub_filter_combo_adv=ttk.Combobox(sidebar, textvariable=self.sub_filter_var, values=adv_options, state="readonly")
+        self.sub_filter_combo_adv.pack(fill="x", pady=(2,8))
+        self.sub_filter_combo_adv.bind("<<ComboboxSelected>>", lambda e: self.refresh_list())
+
         #Patient List
         list_frame=tk.Frame(sidebar, bg="white", relief="sunken", bd=1)
         list_frame.pack(fill="both", expand=True, pady=(0,8))
