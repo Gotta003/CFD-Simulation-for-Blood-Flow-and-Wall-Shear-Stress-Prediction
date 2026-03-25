@@ -6,6 +6,8 @@ import os
 import subprocess
 import platform
 import shutil
+import re
+from datetime import datetime
 
 FILE_NAME="./data/labels/outcomes.csv"
 SEG_BASE="../simulation_db/"
@@ -497,9 +499,20 @@ class PatientApp:
             rows=self.df[self.df["ID"]==int(patient_id)]
             exam_str=str(rows.iloc[0]["Examined_Files"]) if not rows.empty else ""
             exam_list=exam_str.split("|") if exam_str else []
-            for f in sorted(os.listdir(report_dir)):
-                if not os.path.isfile(os.path.join(report_dir, f)):
-                    continue
+            all_report_files=[f for f in os.listdir(report_dir) if os.path.isfile(os.path.join(report_dir, f))]
+
+            def get_report_date(filename):
+                match=re.search(r'\((\d{2}_\d{2}_\d{4})\)', filename)
+                if match:
+                    date_str=match.group(1)
+                    try:
+                        return datetime.strptime(date_str, "%d_%m_%Y")
+                    except ValueError:
+                        return datetime.min
+                return datetime.min
+            
+            sorted_files=sorted(all_report_files, key=get_report_date)
+            for f in sorted_files:
                 f_f=tk.Frame(self.doc_list_frame)
                 f_f.pack(fill="x")
                 v=tk.BooleanVar(value=f in exam_list)
