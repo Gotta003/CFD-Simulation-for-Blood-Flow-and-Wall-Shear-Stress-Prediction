@@ -317,9 +317,9 @@ class PatientApp:
 
         #Adversary Events Filter
         tk.Label(sidebar, text="Filter by Adversary Events:", bg="#f4f4f4", font=("Arial", 9, "bold")).pack(anchor="w", pady=(5,0))
-        self.sub_filter_var=tk.StringVar(value="Not Selected")
+        self.adv_filter_var=tk.StringVar(value="Not Selected")
         adv_options=["Not Selected", "Requires Operation"] + [comp for comp_list in COMP_STRUCTURE.values() for comp in (comp_list if isinstance(comp_list, list) else comp_list.keys())]
-        self.sub_filter_combo_adv=ttk.Combobox(sidebar, textvariable=self.sub_filter_var, values=adv_options, state="readonly")
+        self.sub_filter_combo_adv=ttk.Combobox(sidebar, textvariable=self.adv_filter_var, values=adv_options, state="readonly")
         self.sub_filter_combo_adv.pack(fill="x", pady=(2,8))
         self.sub_filter_combo_adv.bind("<<ComboboxSelected>>", lambda e: self.refresh_list())
 
@@ -789,6 +789,7 @@ class PatientApp:
         term=self.search_var.get().lower()
         s_filt=self.filter_var.get()
         sub_filt=self.sub_filter_var.get()
+        adv_filt=self.adv_filter_var.get()
         
         for pid in self._status_cache.keys():
             row_f, _, sep, _=self._row_widgets[pid]
@@ -840,7 +841,16 @@ class PatientApp:
                 except (IndexError, ValueError):
                     match_sub=True
 
-            if match_search and match_filter and match_sub:
+            match_adv=True
+            if adv_filt!="Not Selected":
+                row_data=self.df[self.df["ID"]==pid].iloc[0]
+                if adv_filt=="Requires Operation":
+                    match_adv=(row_data.get("Requires_Op")=="Yes")
+                else:
+                    complications=str(row_data.get("Complications", ""))
+                    match_adv=adv_filt in complications.split(", ")
+
+            if match_search and match_filter and match_sub and match_adv:
                 row_f, _, sep, _=self._row_widgets[pid]
                 sep.pack(fill="x", side="top")
                 row_f.pack(fill="x", side="top")
