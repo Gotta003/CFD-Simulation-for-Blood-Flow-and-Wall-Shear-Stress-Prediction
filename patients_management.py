@@ -209,7 +209,7 @@ class PatientApp:
         st=self._status_cache.get(pid, {})
         for key, sq in sq_labels:
             if key=="overall":
-                color=st.get("overall", "#e74c3c")
+                color=st.get("overall", "#c0392b")
             else:
                 is_ok=st.get(key, False)
                 color=self._rect_color(is_ok)
@@ -290,7 +290,7 @@ class PatientApp:
         self.filter_var=tk.StringVar(value="All")
         filter_defs=[
             ("All", "#555555"),
-            ("Red", "#e74c3c"),
+            ("Red", "#c0392b"),
             ("Yellow", "#e67e22"),
             ("Green", "#27ae60")
         ]
@@ -396,15 +396,16 @@ class PatientApp:
         self.check_vars={}
         self.check_widgets=[]
         self.create_comp_widgets()
-        self.notes_text=tk.Text(self.center_panel, height=4)
-        self.notes_text.pack(fill="x", pady=10)
+        tk.Label(self.center_panel, text="Notes", font=("Arial", 10, "bold")).pack(anchor="w", pady=(8,0))
+        self.notes_text=tk.Text(self.center_panel, height=7, font=("Arial", 10), relief="sunken", bd=1, padx=5, pady=5)
+        self.notes_text.pack(fill="both", expand=True, pady=(2,10))
         btn_f=tk.Frame(self.center_panel)
         btn_f.pack(fill="x")
         self.modify_btn=tk.Button(btn_f, text="Modify", command=self.enter_modify_mode, bg="#f39c12", fg="white", width=10)
         self.modify_btn.pack(side="left", padx=5)
-        self.save_btn=tk.Button(btn_f, text="Save Changes", command=self.save_data, bg="#2ecc71", fg="white", width=15)
+        self.save_btn=tk.Button(btn_f, text="Save Changes", command=self.save_data, bg="#27ae60", fg="white", width=15)
         self.save_btn.pack(side="left", padx=5)
-        self.remove_btn=tk.Button(btn_f, text="Remove Patient", command=self.remove_patient, bg="#e74c3c", fg="white", width=15)
+        self.remove_btn=tk.Button(btn_f, text="Remove Patient", command=self.remove_patient, bg="#c0392b", fg="white", width=15)
         self.remove_btn.pack(side="left", padx=5)
         # RIGHT PANEL (Tabs)
         self.notebook=ttk.Notebook(self.root, width=450)
@@ -689,10 +690,10 @@ class PatientApp:
             return ok
         if ok in REPORT_COLOR_MAP:
             return REPORT_COLOR_MAP[ok]
-        return "#2ecc71" if ok else "#dde0e3"
+        return "#27ae60" if ok else "#dde0e3"
     
     def _overall_color(self, count: int) -> str:
-        if count==0: return "#e74c3c"
+        if count==0: return "#c0392b"
         if count<5: return "#e67e22"
         return "#27ae60"
 
@@ -804,12 +805,12 @@ class PatientApp:
                 continue
 
             overall=st["overall"]
-            if overall=="#e74c3c": r += 1
+            if overall=="#c0392b": r += 1
             elif overall=="#e67e22": y += 1
             else: g += 1
             
             match_search=(term=="" or term in str(pid).lower())
-            match_filter=(s_filt=="All" or (s_filt=="Red" and overall=="#e74c3c") or (s_filt=="Yellow" and overall=="#e67e22") or (s_filt=="Green" and overall=="#27ae60"))
+            match_filter=(s_filt=="All" or (s_filt=="Red" and overall=="#c0392b") or (s_filt=="Yellow" and overall=="#e67e22") or (s_filt=="Green" and overall=="#27ae60"))
             match_sub=True
             if sub_filt!="All":
                 try:
