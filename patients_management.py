@@ -154,7 +154,6 @@ def detect_simulation_status(patient_id: int) -> str:
         if vtp_files:
             patient_vtp_dir=os.path.join(VTP_BASE, id_str)
             os.makedirs(patient_vtp_dir, exist_ok=True)
-            new_file_copy=False
             for vtp in vtp_files:
                 src_path=os.path.join(target_dir, vtp)
                 if vtp.startswith(id_str):
@@ -165,8 +164,12 @@ def detect_simulation_status(patient_id: int) -> str:
                 dst_path=os.path.join(patient_vtp_dir, new_filename)
                 if not os.path.exists(dst_path):
                     shutil.copy2(src_path, dst_path)
-                    new_file_copy=True
-            if new_file_copy:
+                   
+            def _check_image_folder_emptiness(pid):
+                img_folder=os.path.join(IMAGES_BASE, f"pz{int(pid):03d}")
+                return not os.path.exists(img_folder) or len(os.listdir(img_folder))==0
+
+            if _check_image_folder_emptiness(patient_id):
                 run_post_processing(patient_id, patient_vtp_dir)
             return "Post processed"
 
