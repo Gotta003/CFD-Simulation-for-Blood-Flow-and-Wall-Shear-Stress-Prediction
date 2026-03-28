@@ -131,15 +131,17 @@ def main():
     parser.add_argument("--overwrite", action="store_true")
     args=parser.parse_args()
     
-    vtp_files=sorted(glob.glob(os.path.join(args.vtp_dir, "*.vtp")))
+    vtp_root=Path(args.vtp_dir)
+    vtp_files=sorted(list(vtp_root.rglob("*.vtp")))
+    #vtp_files=sorted(glob.glob(os.path.join(args.vtp_dir, "*.vtp")))
     if not vtp_files:
-        print(f"No .vtp files found in {args.vtp_dir}")
+        print(f"No .vtp files found in {args.vtp_dir} or subdirs")
         return
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
     rng=np.random.default_rng(args.seed)
     ok, skipped, failed=0,0,0
     for vtp_path in vtp_files:
-        pid=Path(vtp_path).stem
+        pid=vtp_path.parent.name
         out_path=os.path.join(args.out_dir, f"pz{pid:03d}.npz")
         if os.path.exists(out_path) and not args.overwrite:
             print(f"[SKIP] {pid} - already exists")
@@ -147,7 +149,7 @@ def main():
             continue
         print(f"Processing {pid} ({args.strategy}, N={args.n_points})")
         try:
-            data=process_vtp(vtp_path, args.n_points, args.strategy, rng)
+            data=process_vtp(str(vtp_path), args.n_points, args.strategy, rng)
             if data is None:
                 failed+=1
                 continue
