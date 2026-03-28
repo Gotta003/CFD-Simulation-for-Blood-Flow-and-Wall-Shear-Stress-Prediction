@@ -105,10 +105,11 @@ success "All packages are installed correctly"
 
 # 4) Create structure
 info "Creating project folder structure..."
-mkdir -p data/{vtp_files,reports,labels}
+mkdir -p data/{dataset.vtp_files,reports,labels,pointclouds}
 mkdir -p src/{extraction,models,explainability,visualization}
-mkdir -p outputs/{features,models,shap_plots,mesh_heatmaps}
+mkdir -p outputs/{dataset,features,models,shap_plots,mesh_heatmaps,splits}
 mkdir -p outputs/models/{xgboost,gnn_pinn}
+mkdir -p scripts/
 mkdir -p notebooks
 touch src/__init__.py
 touch src/extraction/__init__.py
