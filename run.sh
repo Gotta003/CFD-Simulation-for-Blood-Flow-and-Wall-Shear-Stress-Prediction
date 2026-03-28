@@ -19,11 +19,11 @@ STRATEGY="fps"
 SEED=42
 
 echo "Step 1/3 - Sample point clouds from .vtp meshes"
-python src/datasets/sample_pointclouds.py \
+python src/datasets/samples_pointclouds.py \
 	--vtp_dir "$VTP_DIR" \
 	--out_dir "$POINTCLOUD_DIR" \
 	--n_points "$N_POINTS" \
-	--strategy "$STRATEGY" \ 
+	--strategy "$STRATEGY" \
 	--seed "$SEED"
 
 
