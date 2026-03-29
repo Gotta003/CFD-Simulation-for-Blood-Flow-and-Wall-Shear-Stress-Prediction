@@ -11,10 +11,11 @@ set -euo pipefail
 VTP_DIR="data/vtp_files"
 FEATURES_CSV="outputs/features/features.csv"
 OUTCOMES_CSV="data/labels/outcomes.csv"
-POINTCLOUD_DIR="data/pointclouds"
+NPZ_CHECKS_DIR="outputs/npz_checks"
+POINTCLOUD_DIR="data/pointclouds/"
 DATASET_DIR="outputs/dataset"
 SPLITS_DIR="outputs/splits"
-N_POINTS=4096
+N_POINTS=8192
 STRATEGY="fps"
 SEED=42
 
@@ -26,10 +27,13 @@ python src/datasets/samples_pointclouds.py \
 	--strategy "$STRATEGY" \
 	--seed "$SEED"
 
+python3 src/visualization/check_cloudpoints.py \
+	--input "$POINTCLOUD_DIR" \
+	--out_dir "$NPZ_CHECKS_DIR"
 
 echo "Step 2/3 - Merge CFD features with outcomes labels"
-python src/datasets/build_dataset.py \
-	--features "$FEATURES_CSV" \
-	--outcomes "$OUTCOMES_CSV" \
-	--out_dir "$DATASET_DIR" \
-	--pointcloud_dir "$POINTCLOUD_DIR"
+#python src/datasets/build_dataset.py \
+#	--features "$FEATURES_CSV" \
+#	--outcomes "$OUTCOMES_CSV" \
+#	--out_dir "$DATASET_DIR" \
+#	--pointcloud_dir "$POINTCLOUD_DIR"
