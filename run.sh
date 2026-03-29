@@ -27,3 +27,9 @@ python src/datasets/samples_pointclouds.py \
 	--seed "$SEED"
 
 
+echo "Step 2/3 - Merge CFD features with outcomes labels"
+python src/datasets/build_dataset.py \
+	--features "$FEATURES_CSV" \
+	--outcomes "$OUTCOMES_CSV" \
+	--out_dir "$DATASET_DIR" \
+	--pointcloud_dir "$POINTCLOUD_DIR"
