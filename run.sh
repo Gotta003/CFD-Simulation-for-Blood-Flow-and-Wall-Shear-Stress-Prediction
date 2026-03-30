@@ -4,7 +4,7 @@
 #./setup.sh
 
 #2) Activate Env
-#source .evar_env/bin/activate
+source .evar_env/bin/activate
 
 #3) Pipeline Start Dataset
 set -euo pipefail
@@ -39,12 +39,12 @@ python src/datasets/build_dataset.py \
 	--pointcloud_dir "$POINTCLOUD_DIR"
 
 echo "Step 3/3 - Generate 5-fold splits"
-python src/data/split_dataset.py \
+python src/datasets/split_dataset.py \
 	--dataset "$DATASET_DIR/dataset.csv" \
 	--out_dir "$SPLITS_DIR" \
 	--n_folds 5 \
 	--test_pct 0.20 \
-	--seeed "$SEED"
+	--seed "$SEED"
 
 echo ""
 echo "=========================================================="
