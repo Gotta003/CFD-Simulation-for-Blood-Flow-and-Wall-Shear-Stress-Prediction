@@ -28,7 +28,7 @@ if not os.path.exists(REPORTS_BASE):
     os.makedirs(REPORTS_BASE)
 
 COMP_STRUCTURE={
-    "Endoleak": {"Type I": ["Type IA", "Type IB"], "Type II": [], "Type III": []},
+    "Endoleak": {"Type I": ["Type IA", "Type IB"], "Type II": [], "Type III": [], "Type IV": []},
     "Other": ["Graft_Migration", "Thrombosis", "Reintervention", "Rupture"]
 }
 
