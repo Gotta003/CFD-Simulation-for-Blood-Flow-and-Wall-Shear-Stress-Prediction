@@ -39,6 +39,10 @@ def check_sampled_points(npz_path, base_out_dir):
     patient_out_dir.mkdir(parents=True, exist_ok=True)
     print(f"\n--- Patient: {pid} (from {raw_name}.npz) ---")
     for field in fields:
+        out_path=patient_out_dir / f"{field}.png"
+        if out_path.exists():
+            print(f"[SKIP] {field} visualization already exists at {out_path}")
+            continue
         scalars=data[field]
         pc=pv.PolyData(xyz)
         pc[field]=scalars
@@ -48,7 +52,6 @@ def check_sampled_points(npz_path, base_out_dir):
         plotter.add_title(f"NPZ Sanity Check - {pid} ({len(xyz)} points)", font_size=10)
         plotter.view_isometric()
 
-        out_path=patient_out_dir / f"{field}.png"
         plotter.screenshot(out_path)
         plotter.close()
         print(f"--- Sanity Report: {pid} ---")

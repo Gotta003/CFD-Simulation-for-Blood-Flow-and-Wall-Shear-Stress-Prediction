@@ -1,10 +1,12 @@
 import os
+import re
 import argparse
 from pathlib import Path
 import numpy as np
 import pandas as pd
 
 TOKEN_MAP: dict[str, list[str]]={
+    "none": [],
     "type i": ["endoleak_type1"],
     "type ia": ["endoleak_type1a"],
     "type ib": ["endoleak_type1b"],
@@ -23,11 +25,19 @@ ALL_LABEL_COLS=ENDOLEAK_COLS+["any_endoleak"]+OTHER_COLS
 
 CFD_PREFIXES=["tawss", "osi", "ecap", "rrt", "pressure", "wss", "velocity", "vorticity", "divergence", "traction"]
 
+def get_formatted_pid(name: str) -> str:
+    name_str=str(name).strip().lower()
+    digits=re.findall(r'\d+', name)
+    if digits:
+        return f"pz{int(digits[0]):03d}"
+    return name_str
+
 def _find_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
     lower_map={c.lower().replace(" ", "_"): c for c in df.columns}
     for cand in candidates:
-        if cand in lower_map:
-            return lower_map[cand]
+        clear_cand=cand.lower().replace(" ", "_").strip()
+        if clear_cand in lower_map:
+            return lower_map[clear_cand]
     return None
 
 def load_outcomes(path: str) -> pd.DataFrame:
@@ -48,16 +58,16 @@ def load_outcomes(path: str) -> pd.DataFrame:
             f"Cannot find an operation flag column in {path}."
             f"Columns found: {list(df.columns)}"
         )
-    df["operation_flag"]=pd.to_numeric(df[op_col], errors="coerce").fillna(0).astype(int)
+    df["operation_flag"]=(df[op_col].astype(str).str.lower().str.strip().map({"yes": 1, "no": 0, '1': 1, '0': 0}).fillna(0).astype(int))
     if op_col!="operation_flag":
         df=df.drop(columns=[op_col])
     comp_col=_find_col(df, ["Complications"])
     if comp_col is None:
         print(f"[WARN] No complication type column found, then all type labels will be 0\nColumns found: {list(df.columns)}")
-        df["complication_type"]="none"
+        df["complication_raw"]="none"
     else:
-        df["complication_type"]=df[comp_col].fillna("none").astype(str).str.strip()
-        if comp_col!="complication_type":
+        df["complication_raw"]=df[comp_col].fillna("none").astype(str).str.strip()
+        if comp_col!="complication_raw":
             df=df.drop(columns=[comp_col])
     return df
    
@@ -112,6 +122,10 @@ def get_cfd_feature_cols(df: pd.DataFrame) -> list[str]:
 
 def write_label_summary(df: pd.DataFrame, out_path: str) -> None:
     n=len(df)
+    if n==0:
+        print(f"No data to summarize for label summary at {out_path}")
+        return
+    
     t1=df["endoleak_type1"].astype(bool)
     t1a=df["endoleak_type1a"].astype(bool)
     t1b=df["endoleak_type1b"].astype(bool)
@@ -121,7 +135,7 @@ def write_label_summary(df: pd.DataFrame, out_path: str) -> None:
     lines=["Label balance summary", "="*52, f"Total patients: {n}", "", "Operation flag", f"required: {int(df['operation_flag'].sum())}", f"({100*df['operation_flag'].mean():.1f}%)", f"none: {n-int(df['operation_flag'].sum())}", "", "Endoleak labels (multi-hot):",]
     for col in ENDOLEAK_COLS+["any_endoleak"]:
         n_pos=int(df[col].sum())
-        lines.append(f"{col:22s}: {n_pos:.4d} pos ({100*n_pos/n:5.1f}%) {n-n_pos:4d} neg ({100*(n-n_pos)/n:5.1f}%)")
+        lines.append(f"{col:22s}: {n_pos:4d} pos ({100*n_pos/n:5.1f}%) {n-n_pos:4d} neg ({100*(n-n_pos)/n:5.1f}%)")
     lines+=["","Co-occurence (patients with multiple endoleak types):",     
         f"Type I (Pure) only: {int((t1 & ~t1a & ~t1b & ~t2 & ~t3 & ~t4).sum())}",
         f"Type IA only:      {int((t1 &  t1a & ~t1b & ~t2 & ~t3 & ~t4).sum())}",
@@ -141,13 +155,13 @@ def write_label_summary(df: pd.DataFrame, out_path: str) -> None:
     ]
     for col in OTHER_COLS:
         n_pos=int(df[col].sum())
-        lines.append(f"{col:22s}: {n_pos:.4d} ({100*n_pos/n:.1f}%)")
+        lines.append(f"{col:22s}: {n_pos:4d} ({100*n_pos/n:.1f}%)")
         lines+=["", "Raw complication cell frequencies (top 30):"]
         for val, cnt in df["complication_raw"].value_counts().head(30).items():
             lines.append(f" {str(val):45s}: {cnt}")
         with open(out_path, "w") as f:
             f.write("\n".join(lines))
-        print(f"Label summary -> {out_path}")
+    print(f"Label summary -> {out_path}")
         
 def main():
     parser=argparse.ArgumentParser(description="Merge CFD features with clinical outcomes")
@@ -160,11 +174,12 @@ def main():
     #Features
     print(f"Loading features: {args.features}")
     feat_df=pd.read_csv(args.features)
-    feat_df["patient_id"]=feat_df["patient_id"].astype(str).str.strip()
+    feat_df["patient_id"]=feat_df["patient_id"].apply(get_formatted_pid)
     print(f"{len(feat_df)} patients, {len(feat_df.columns)} columns")
     #Outcomes
     print(f"Loading outcomes: {args.outcomes}")
     out_df=load_outcomes(args.outcomes)
+    out_df["patient_id"]=out_df["patient_id"].apply(get_formatted_pid)
     out_df=encode_labels(out_df)
     print(f"{len(feat_df)} patients, {len(feat_df.columns)} columns")
     for col in ENDOLEAK_COLS+["any_endoleak"]:
@@ -173,7 +188,12 @@ def main():
     keep_out=["patient_id", "operation_flag", "complication_raw"]+ALL_LABEL_COLS
     merged=feat_df.merge(out_df[keep_out], on="patient_id", how="inner", validate="1:1")
     print(f"\nMerged: {len(merged)} patients ({len(feat_df)-len(merged)} unmatched and dropped)")
-    #Point-Cloud Avail
+    if len(merged)==0:
+        print("\n[CRITICAL ERROR] Merge resulted in 0 patients.")
+        print(f"Sample feature IDs: {feat_df['patient_id'].head(3).tolist()}")
+        print(f"Sample outcome IDs: {out_df['patient_id'].head(3).tolist()}")
+        return
+    #Point-Cloud Avail 
     if os.path.isdir(args.pointcloud_dir):
         npz_ids={Path(p).stem for p in Path(args.pointcloud_dir).glob("*.npz")}
         merged["has_npz"]=merged["patient_id"].isin(npz_ids).astype(int)
