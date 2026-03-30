@@ -37,3 +37,21 @@ python src/datasets/build_dataset.py \
 	--outcomes "$OUTCOMES_CSV" \
 	--out_dir "$DATASET_DIR" \
 	--pointcloud_dir "$POINTCLOUD_DIR"
+
+echo "Step 3/3 - Generate 5-fold splits"
+python src/data/split_dataset.py \
+	--dataset "$DATASET_DIR/dataset.csv" \
+	--out_dir "$SPLITS_DIR" \
+	--n_folds 5 \
+	--test_pct 0.20 \
+	--seeed "$SEED"
+
+echo ""
+echo "=========================================================="
+echo "Pipeline complete. Outputs:"
+echo "Point clouds: $POINTCLOUD_DIR/"
+echo "Dataset CSV: $DATASET_DIR/dataset.csv"
+echo "Feature list: $DATASET_DIR/feature_columns.txt"
+echo "Label Summary: $DATASET_DIR/label_summary.txt"
+echo "Splits: $SPLITS_DIR/"
+echo "=========================================================="
