@@ -110,6 +110,45 @@ def validate_merge(merged: pd.DataFrame, n_feat: int, n_out: int) -> list[str]:
 def get_cfd_feature_cols(df: pd.DataFrame) -> list[str]:
     return sorted(col for col in df.columns if any(col.lower().startswith(p) for p in CFD_PREFIXES) and pd.api.types.is_numeric_dtype(df[col]))
 
+def write_label_summary(df: pd.DataFrame, out_path: str) -> None:
+    n=len(df)
+    t1=df["endoleak_type1"].astype(bool)
+    t1a=df["endoleak_type1a"].astype(bool)
+    t1b=df["endoleak_type1b"].astype(bool)
+    t2=df["endoleak_type2"].astype(bool)
+    t3=df["endoleak_type3"].astype(bool)
+    t4=df["endoleak_type4"].astype(bool)
+    lines=["Label balance summary", "="*52, f"Total patients: {n}", "", "Operation flag", f"required: {int(df['operation_flag'].sum())}", f"({100*df['operation_flag'].mean():.1f}%)", f"none: {n-int(df['operation_flag'].sum())}", "", "Endoleak labels (multi-hot):",]
+    for col in ENDOLEAK_COLS+["any_endoleak"]:
+        n_pos=int(df[col].sum())
+        lines.append(f"{col:22s}: {n_pos:.4d} pos ({100*n_pos/n:5.1f}%) {n-n_pos:4d} neg ({100*(n-n_pos)/n:5.1f}%)")
+    lines+=["","Co-occurence (patients with multiple endoleak types):",     
+        f"Type I (Pure) only: {int((t1 & ~t1a & ~t1b & ~t2 & ~t3 & ~t4).sum())}",
+        f"Type IA only:      {int((t1 &  t1a & ~t1b & ~t2 & ~t3 & ~t4).sum())}",
+        f"Type IB only:      {int((t1 & ~t1a &  t1b & ~t2 & ~t3 & ~t4).sum())}",
+        f"Type I+ (A&B) only: {int((t1 &  t1a &  t1b & ~t2 & ~t3 & ~t4).sum())}",
+        f"Type II only:      {int((~t1 & ~t2 &  t2 & ~t3 & ~t4).sum())}",
+        f"Type III only:     {int((~t1 & ~t2 & ~t3 &  t3 & ~t4).sum())}",
+        f"Type IV only:      {int((~t1 & ~t2 & ~t3 & ~t4 &  t4).sum())}",
+        f"Type I & II:   {int((t1 & t2 & ~t3 & ~t4).sum())}",
+        f"Type I & III:  {int((t1 & t3 & ~t2 & ~t4).sum())}",
+        f"Type I & IV:   {int((t1 & t4 & ~t2 & ~t3).sum())}",
+        f"Type II & III: {int((~t1 & t2 & t3 & ~t4).sum())}",
+        f"Type II & IV:  {int((~t1 & t2 & t4 & ~t3).sum())}",
+        f"Type III & IV: {int((~t1 & t3 & t4 & ~t2).sum())}",
+        "",
+        "Other complications:"
+    ]
+    for col in OTHER_COLS:
+        n_pos=int(df[col].sum())
+        lines.append(f"{col:22s}: {n_pos:.4d} ({100*n_pos/n:.1f}%)")
+        lines+=["", "Raw complication cell frequencies (top 30):"]
+        for val, cnt in df["complication_raw"].value_counts().head(30).items():
+            lines.append(f" {str(val):45s}: {cnt}")
+        with open(out_path, "w") as f:
+            f.write("\n".join(lines))
+        print(f"Label summary -> {out_path}")
+        
 def main():
     parser=argparse.ArgumentParser(description="Merge CFD features with clinical outcomes")
     parser.add_argument("--features", default="outputs/features/features.csv")
@@ -157,10 +196,17 @@ def main():
         for col in feature_cols:
             merged[col]=merged[col].fillna(merged[col].median())
     #Column Ordering
-    
+    meta=["patient_id", "operation_flag", "complication_raw", "has_npz"]+ALL_LABEL_COLS
+    others=[c for c in merged.columns if c not in meta + feature_cols]
+    merged=merged[meta+feature_cols+others]
     #Saving
-    
-    #Summary
+    dataset_path=os.path.join(args.out_dir, "dataset.csv")
+    merged.to_csv(dataset_path, index=False)
+    print(f"\nDataset saved -> {dataset_path} {merged.shape}")
+    feat_list_path=os.path.join(args.out_dir, "feature_columns.txt")
+    Path(feat_list_path).write_text("\n".join(feature_cols))
+    print(f"Feature list -> {feat_list_path} ({len(feature_cols)} columns)")
+    write_label_summary(merged, os.path.join(args.out_dir, "label_summary.txt"))
     
 if __name__=="__main__":
     main()
