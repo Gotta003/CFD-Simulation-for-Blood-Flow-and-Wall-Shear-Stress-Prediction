@@ -38,7 +38,7 @@ def load_outcomes(path: str) -> pd.DataFrame:
         raise ValueError(
             f"Cannot find a Patient ID column in {path}.\n"
             f"Columns found: {list(df.columns)}\n"
-            f"Expected one of: patient_id, Patient_ID, id, patient"
+            f"Expected one ID"
         )
     df=df.rename(columns={id_col:"patient_id"})
     df["patient_id"]=df["patient_id"].astype(str).str.strip()
@@ -153,7 +153,7 @@ def main():
     parser=argparse.ArgumentParser(description="Merge CFD features with clinical outcomes")
     parser.add_argument("--features", default="outputs/features/features.csv")
     parser.add_argument("--outcomes", default="data/labels/outcomes.csv")
-    parser.add_argument("out_dir", default="outputs/dataset/")
+    parser.add_argument("--out_dir", default="outputs/dataset/")
     parser.add_argument("--pointcloud_dir", default="data/pointclouds/", help="Dir with .npz files used only to add a has_npz flag")
     args=parser.parse_args()
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
