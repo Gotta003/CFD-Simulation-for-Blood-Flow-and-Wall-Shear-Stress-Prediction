@@ -15,11 +15,14 @@ NPZ_CHECKS_DIR="outputs/npz_checks/"
 POINTCLOUD_DIR="outputs/pointclouds/"
 DATASET_DIR="outputs/dataset"
 SPLITS_DIR="outputs/splits"
+SLICER_BIN="/opt/Slicer-5.10.0-linux-amd64/Slicer" 
+MORPHO_DIR="data/morpho"
+MESHES_DIR="../simulation_db"
 N_POINTS=8192
 STRATEGY="fps"
 SEED=42
 
-echo "Step 1/3 - Sample point clouds from .vtp meshes"
+echo "Step 1/4 - Sample point clouds from .vtp meshes"
 python src/datasets/samples_pointclouds.py \
 	--vtp_dir "$VTP_DIR" \
 	--out_dir "$POINTCLOUD_DIR" \
@@ -31,14 +34,30 @@ python3 src/visualization/check_cloudpoints.py \
 	--input "$POINTCLOUD_DIR" \
 	--out_dir "$NPZ_CHECKS_DIR"
 
-echo "Step 2/3 - Merge CFD features with outcomes labels"
+echo "Step 2/4 - Extract morphological and radiomics features"
+mkdir -p "$MORPHO_DIR"
+#for patient_vtp in "$VTP_DIR"/*.vtp; do
+	patient_vtp="$VTP_DIR/pz001/pz001_test_last_cycle_metrics.vtp"
+	name=$(basename "$patient_vtp")
+	patient_id="$(echo "$name" | grep -oP '\d+')"
+	echo "Processing $patient_id..."
+	# L'opzione 'env -i' crea un ambiente vuoto, poi ripristiniamo solo il minimo indispensabile
+	env -u PYTHONPATH -u PYTHONHOME -u PYTHONUSERBASE -- "$SLICER_BIN" \
+		--no-main-window \
+		--python-script src/extraction/morpho_extraction_slicer.py \
+		--patient_id "$patient_id" \
+		--db_path "$MESHES_DIR" \
+		--out_dir "$MORPHO_DIR"
+#done
+
+echo "Step 3/4 - Merge CFD features with outcomes labels"
 python src/datasets/build_dataset.py \
 	--features "$FEATURES_CSV" \
 	--outcomes "$OUTCOMES_CSV" \
 	--out_dir "$DATASET_DIR" \
 	--pointcloud_dir "$POINTCLOUD_DIR"
 
-echo "Step 3/3 - Generate 5-fold splits"
+echo "Step 4/4 - Generate 5-fold splits"
 python src/datasets/split_dataset.py \
 	--dataset "$DATASET_DIR/dataset.csv" \
 	--out_dir "$SPLITS_DIR" \
