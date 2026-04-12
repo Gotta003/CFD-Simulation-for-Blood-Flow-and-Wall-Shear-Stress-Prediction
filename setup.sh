@@ -105,9 +105,9 @@ success "All packages are installed correctly"
 
 # 4) Create structure
 info "Creating project folder structure..."
-mkdir -p data/{dataset.vtp_files,reports,labels,pointclouds}
+mkdir -p data/{vtp_files,reports,labels,morpho}
 mkdir -p src/{extraction,models,explainability,visualization}
-mkdir -p outputs/{dataset,features,models,shap_plots,mesh_heatmaps,splits}
+mkdir -p outputs/{dataset,features,models,pointclouds,npz_checks,shap_plots,mesh_heatmaps,splits}
 mkdir -p outputs/models/{xgboost,gnn_pinn}
 mkdir -p scripts/
 mkdir -p notebooks

@@ -27,9 +27,10 @@ def main():
         print(f"[ERROR] --min ({args.id_min}) must be <= --max ({args.id_max})")
         return
     
-    if os.path.exists(FILE_NAME):
+    if os.path.exists(FILE_NAME) and os.path.getsize(FILE_NAME):
         df=pd.read_csv(FILE_NAME).fillna("")
     else:
+        print(f"Warning: {FILE_NAME} is empty or missing")
         df=pd.DataFrame(columns=list(EMPTY_ROW.keys()))
     existing_ids=set(df["ID"].astype(int).tolist()) if not df.empty else set()
     requested=set(range(args.id_min, args.id_max+1))
