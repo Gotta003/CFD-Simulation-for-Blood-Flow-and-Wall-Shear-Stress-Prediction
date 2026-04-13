@@ -41,7 +41,6 @@ mkdir -p "$MORPHO_DIR"
 	name=$(basename "$patient_vtp")
 	patient_id="$(echo "$name" | grep -oP '\d+')"
 	echo "Processing $patient_id..."
-	# L'opzione 'env -i' crea un ambiente vuoto, poi ripristiniamo solo il minimo indispensabile
 	env -u PYTHONPATH -u PYTHONHOME -u PYTHONUSERBASE -- "$SLICER_BIN" \
 		--no-main-window \
 		--python-script src/extraction/morpho_extraction_slicer.py \
@@ -49,6 +48,10 @@ mkdir -p "$MORPHO_DIR"
 		--db_path "$MESHES_DIR" \
 		--out_dir "$MORPHO_DIR"
 #done
+
+#Launch code for src/extraction/metrics_computation.py to compute radiomics and morphological features and save them in outputs/features/morpho.csv
+
+#Verify launching src/visualization/visualize.py with --landmarks_en argument to visualize landmarks on meshes
 
 echo "Step 3/4 - Merge CFD features with outcomes labels"
 python src/datasets/build_dataset.py \

@@ -21,7 +21,8 @@ TOKEN_MAP: dict[str, list[str]]={
 
 ENDOLEAK_COLS=["endoleak_type1", "endoleak_type1a", "endoleak_type1b", "endoleak_type2", "endoleak_type3", "endoleak_type4"]
 OTHER_COLS=["other_migration", "other_thrombosis", "other_reintervention", "other_rupture"]
-ALL_LABEL_COLS=ENDOLEAK_COLS+["any_endoleak"]+OTHER_COLS
+TARGET_COLS=ENDOLEAK_COLS+OTHER_COLS
+ALL_LABEL_COLS=TARGET_COLS+["any_endoleak"]
 
 CFD_PREFIXES=["tawss", "osi", "ecap", "rrt", "pressure", "wss", "velocity", "vorticity", "divergence", "traction"]
 
@@ -216,9 +217,9 @@ def main():
         for col in feature_cols:
             merged[col]=merged[col].fillna(merged[col].median())
     #Column Ordering
-    meta=["patient_id", "operation_flag", "complication_raw", "has_npz"]+ALL_LABEL_COLS
+    meta=["patient_id", "operation_flag", "complication_raw", "has_npz"]
     others=[c for c in merged.columns if c not in meta + feature_cols]
-    merged=merged[meta+feature_cols+others]
+    merged=merged[meta+TARGET_COLS+["any_endoleak"]+feature_cols+others]
     #Saving
     dataset_path=os.path.join(args.out_dir, "dataset.csv")
     merged.to_csv(dataset_path, index=False)
