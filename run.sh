@@ -35,16 +35,28 @@ python3 src/visualization/check_cloudpoints.py \
 	--out_dir "$NPZ_CHECKS_DIR"
 
 echo "Step 2/4 - Extract morphological and radiomics features"
+
+command -v xvfb-run >/dev/null 2>&1 || { echo "xvfb not found. Installing..."; sudo apt-get update && sudo apt-get install -y xvfb;}
+
+export PYTHONPATH=""
+export PYTHONHOME=""
+export PYTHONUSERBASE=""
+unset PYTHONHOME
+unset PYTHONPATH
+unset PYTHONUSERBASE
+
 mkdir -p "$MORPHO_DIR"
+
 #for patient_vtp in "$VTP_DIR"/*.vtp; do
 	patient_vtp="$VTP_DIR/pz001/pz001_test_last_cycle_metrics.vtp"
 	name=$(basename "$patient_vtp")
 	patient_id="$(echo "$name" | grep -oP '\d+')"
 	echo "Processing $patient_id..."
-	env -u PYTHONPATH -u PYTHONHOME -u PYTHONUSERBASE -- "$SLICER_BIN" \
-		--no-main-window \
+	xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
+		env -i HOME="$HOME" DISPLAY="$DISPLAY" PATH="$PATH" \
+		$SLICER_BIN \
 		--python-script src/extraction/morpho_extraction_slicer.py \
-		--patient_id "$patient_id" \
+		--patient_id "001" \
 		--db_path "$MESHES_DIR" \
 		--out_dir "$MORPHO_DIR"
 #done
