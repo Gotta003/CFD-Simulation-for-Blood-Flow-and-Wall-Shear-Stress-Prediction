@@ -47,7 +47,7 @@ unset PYTHONUSERBASE
 
 mkdir -p "$MORPHO_DIR"
 
-#for patient_vtp in "$VTP_DIR"/*.vtp; do
+for patient_vtp in "$VTP_DIR"/*.vtp; do
 	patient_vtp="$VTP_DIR/pz001/pz001_test_last_cycle_metrics.vtp"
 	name=$(basename "$patient_vtp")
 	patient_id="$(echo "$name" | grep -oP '\d+')"
@@ -59,7 +59,7 @@ mkdir -p "$MORPHO_DIR"
 		--patient_id "001" \
 		--db_path "$MESHES_DIR" \
 		--out_dir "$MORPHO_DIR"
-#done
+done
 
 #Launch code for src/extraction/metrics_computation.py to compute radiomics and morphological features and save them in outputs/features/morpho.csv
 

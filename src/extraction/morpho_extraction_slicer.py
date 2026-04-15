@@ -180,26 +180,19 @@ def main():
             import SegmentStatistics
     
             print("--- Computation Volume Statics ---")
+            seg_node.SetAndObserveTransformNodeID(None)
             ss_logic=SegmentStatistics.SegmentStatisticsLogic()
-            ss_table=slicer.mrmlScene.AddNewNodeByClass("vtkMRMLTableNode", "volume_stats")
-            param_node=ss_logic.getParameterNode()
-            ss_logic.reset()
-            param_node.SetParameter("Segmentation", seg_node.GetID())
-            param_node.SetParameter("ScalarVolume", ct_node.GetID())
-            param_node.SetParameter("visibleSegmentsOnly", "False")
-            param_node.SetParameter("LabelmapSegmentStatisticsPlugin.enabled", "True")
-            param_node.SetParameter("ScalarVolumeSegmentStatisticsPlugin.enabled", "True")
-            param_node.SetParameter("ClosedSurfaceSegmentStatisticsPlugin.enabled", "True")
-
+            ss_logic.getParameterNode().SetParameter("Segmentation", seg_node.GetID())
+            ss_logic.getParameterNode().SetParameter("ScalarVolume", ct_node.GetID())
+            ss_logic.getParameterNode().SetParameter("visibleSegmentsOnly", "False")
+            ss_logic.getParameterNode().SetParameter("LabelmapSegmentStatisticsPlugin.enabled", "True")
+            ss_logic.getParameterNode().SetParameter("ScalarVolumeSegmentStatisticsPlugin.enabled", "True")
+            ss_logic.getParameterNode().SetParameter("ClosedSurfaceSegmentStatisticsPlugin.enabled", "True")
             slicer.app.processEvents()
             ss_logic.computeStatistics()
-            ss_logic.exportToTable(ss_table, nonEmptyKeysOnly=False)
-            if ss_table.GetNumberOfRows() > 0:
-                ss_table.SetUseColumnTitleAsColumnHeader(True)
-                slicer.util.saveNode(ss_table, os.path.join(out_parent_dir, "volume.csv"))
-                print("[SUCCESS] Saved volume.csv")
-            else:
-                print("[ERROR] Table Statistics Volume is empty")
+            csv_path=os.path.join(out_parent_dir, "volume.csv")
+            ss_logic.exportToCSVFile(csv_path)
+            print("[SUCCESS] Saved volume.csv")
         except Exception as e:
             print(f"[ERROR] Failed to compute segment statistics: {e}")
     else:
