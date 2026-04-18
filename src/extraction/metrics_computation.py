@@ -110,28 +110,18 @@ def main():
             
     unified_row = {
         "Patient_ID":           args.patientid,
- 
-        # Landmark diameters
         "P1_Diam_Axial_mm":     round(p1[diam_S],   2),
         "P2_Diam_Axial_mm":     round(p2[diam_S],   2),
         "Pmax_Diam_Axial_mm":   round(p_max[diam_S], 2),
         "Pmax_Diam_Coronal_mm": round(p_max[diam_A], 2) if not pd.isna(p_max[diam_A]) else float('nan'),
         "P3_Diam_Axial_mm":     round(p3[diam_S],   2),
- 
-        # Lengths
         "L_Neck_mm":            round(abs(p2['Slice Index'] - p1['Slice Index']), 2),
         "L_Aneurysm_mm":        round(abs(p3['Slice Index'] - p2['Slice Index']), 2),
         "L_Total_mm":           round(total_length, 2) if not pd.isna(total_length) else float('nan'),
- 
-        # Shape metrics
         "Tortuosity":           round(tortuosity, 3),
         "Saccularity_Ratio":    round(saccularity, 3) if not pd.isna(saccularity) else float('nan'),
         "Neck_Angle_deg":       neck_angle,
- 
-        # Volume
         "Total_Volume_mm3":     total_volume,
- 
-        # Baseline (diagnostic context)
         "D_Baseline_mm":        round(d_baseline, 2),
     }
  
