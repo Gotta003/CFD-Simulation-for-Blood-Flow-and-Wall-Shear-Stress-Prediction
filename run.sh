@@ -1,7 +1,7 @@
 #!/usr/bin/bash
 #1) Setup Environment
-#chmod +x setup.sh
-#./setup.sh
+chmod +x setup.sh
+./setup.sh
 
 #2) Activate Env
 source .evar_env/bin/activate
@@ -17,9 +17,9 @@ DATASET_DIR="outputs/dataset"
 SPLITS_DIR="outputs/splits"
 SLICER_BIN="/opt/Slicer-5.10.0-linux-amd64/Slicer" 
 MORPHO_DIR="data/morpho"
-FEATURES_DIR="outputs/features/"
+FEATURES_DIR="outputs/features"
 MESHES_DIR="../simulation_db"
-N_POINTS=8192
+N_POINTS=16384
 STRATEGY="fps"
 SEED=42
 
@@ -37,6 +37,9 @@ python3 src/visualization/check_cloudpoints.py \
 
 echo "Step 2/4 - Extract morphological and radiomics features"
 
+echo "Extracting CT and Mesh features and saving in /outputs/dataset/alignment_audit.csv"
+python src/extraction/audit_alignment.py
+
 command -v xvfb-run >/dev/null 2>&1 || { echo "xvfb not found. Installing..."; sudo apt-get update && sudo apt-get install -y xvfb;}
 
 export PYTHONPATH=""
@@ -53,8 +56,8 @@ rm -rf "$FEATURES_DIR/morpho_unified_metrics.csv"
 for patient_vtp in "$VTP_DIR"/**/*.vtp; do
 	patient_folder=$(basename "$(dirname "$patient_vtp")")
 	digits=$(echo "$patient_folder" | tr -dc '0-9')
-	patient_id=$(printf "%03d" "$digits")
-	echo "Processing $patient_id..."
+	patient_id=$(printf "%03d" "$((10#$digits))")
+	echo "Processing $patient_id in $patient_folder..."
 	xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
 		env -i HOME="$HOME" DISPLAY="$DISPLAY" PATH="$PATH" \
 		$SLICER_BIN \

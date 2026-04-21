@@ -4,6 +4,81 @@ import slicer
 import vtk
 import sys
 
+MESH_UNIT_SCALE={
+    "001": 1.0, #mm all others in cm
+}
+MESH_UNIT_SCALE_DEFAULT=10.0
+PATIENTS_NO_MESH={"011", "113"}
+
+def get_mesh_scale(patient_id):
+    return MESH_UNIT_SCALE.get(patient_id, MESH_UNIT_SCALE_DEFAULT)
+
+def apply_transform(mesh_node, matrix):
+    t_node = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLLinearTransformNode", "TempTransform")
+    t_node.SetMatrixTransformToParent(matrix)
+    mesh_node.SetAndObserveTransformNodeID(t_node.GetID())
+    mesh_node.HardenTransform()
+    slicer.mrmlScene.RemoveNode(t_node)
+
+def normalize_mesh_to_Ct(mesh_node, ct_node, patient_id):
+    def get_bounds(node):
+        b=[0]*6
+        node.GetBounds(b)
+        return b
+    
+    def bounds_overlap(b1, b2):
+        return (b1[0]<b2[1] and b1[1]>b2[0] and b1[2]<b2[3] and b1[3]>b2[2] and b1[4]<b2[5] and b1[5]>b2[4])
+    
+    def centroid(b):
+        return [(b[i*2]+b[i*2+1])/2 for i in range(3)]
+    ct_bounds=get_bounds(ct_node)
+    #Scale
+    scale=get_mesh_scale(patient_id)
+    if scale!=1.0:
+        print(f"[INFO] Scaling mesh by factor {scale} for patient {patient_id}")
+        m=vtk.vtkMatrix4x4()
+        m.Identity()
+        m.SetElement(0, 0, scale)
+        m.SetElement(1, 1, scale)
+        m.SetElement(2, 2, scale)
+        apply_transform(mesh_node, m)
+    else:
+        print(f"[INFO] No scaling applied for patient {patient_id}")
+    mesh_bounds=get_bounds(mesh_node)
+    print(f"[DEBUG] After scale - mesh bounds:"
+          f"X[{mesh_bounds[0]:.1f}, {mesh_bounds[1]:.1f}] "
+          f"Y[{mesh_bounds[2]:.1f}, {mesh_bounds[3]:.1f}] "
+          f"Z[{mesh_bounds[4]:.1f}, {mesh_bounds[5]:.1f}]"
+    )
+    #Translate
+    mc=centroid(mesh_bounds)
+    cc=centroid(ct_bounds)
+    tx, ty, tz=cc[0]-mc[0], cc[1]-mc[1], cc[2]-mc[2]
+    print(f"[INFO] pz{patient_id}: translating [{tx:.1f}, {ty:.1f}, {tz:.1f}] mm")
+    m=vtk.vtkMatrix4x4()
+    m.Identity()
+    m.SetElement(0, 3, tx)
+    m.SetElement(1, 3, ty)
+    m.SetElement(2, 3, tz)
+    apply_transform(mesh_node, m)
+    #Verification
+    mesh_bounds=get_bounds(mesh_node)
+    if bounds_overlap(mesh_bounds, ct_bounds):
+        print(f"[INFO] pz{patient_id}: mesh aligned to CT"
+              f"X[{mesh_bounds[0]:.1f}, {mesh_bounds[1]:.1f}] "
+              f"Y[{mesh_bounds[2]:.1f}, {mesh_bounds[3]:.1f}] "
+              f"Z[{mesh_bounds[4]:.1f}, {mesh_bounds[5]:.1f}]")
+        return True
+    else:
+        print(f"[ERROR] pz{patient_id}: no CT overlap after scale+translate"
+              f"Mesh: X[{mesh_bounds[0]:.1f}, {mesh_bounds[1]:.1f}]"
+              f"Y[{mesh_bounds[2]:.1f}, {mesh_bounds[3]:.1f}] "
+              f"Z[{mesh_bounds[4]:.1f}, {mesh_bounds[5]:.1f}] | "
+              f"CT: X[{ct_bounds[0]:.1f}, {ct_bounds[1]:.1f}] "
+              f"Y[{ct_bounds[2]:.1f}, {ct_bounds[3]:.1f}] "
+              f"Z[{ct_bounds[4]:.1f}, {ct_bounds[5]:.1f}]")
+        return False
+    
 def main():
     slicer.app.processEvents()
     #Parser
@@ -29,12 +104,17 @@ def main():
     db_path=os.path.abspath(os.path.join(launch_path, args.db_path))
     out_dir=os.path.abspath(os.path.join(launch_path, args.out_dir))
 
+    if patient_id in PATIENTS_NO_MESH:
+        print(f"[ERROR] Patient {patient_id} is known to have no mesh available. Skipping.")
+        return
+
     #Temp partition
     custom_temp=os.path.join(out_dir, "slicer_temp")
     os.makedirs(custom_temp, exist_ok=True)
     slicer.app.temporaryPath = custom_temp
     print(f"[INFO] Temporary directory set to: {custom_temp}")
 
+    #NEw SegmentGeometry
     script_dir=os.path.dirname(os.path.abspath(__file__))
     patched_sg=os.path.join(script_dir, "SegmentGeometryPatched.py")
     if os.path.isfile(patched_sg):
@@ -52,17 +132,18 @@ def main():
 
     #Path Verification
     input_dir=None
-    path_variants=[
+    path_variants = [
+        f"{db_path}/pz{patient_id}/Meshes",
+        f"{db_path}/pz_{patient_id}/Meshes",
         f"{db_path}/pz{patient_id}/Simulations/pz{patient_id}/mesh-complete",
         f"{db_path}/pz_{patient_id}/Simulations/pz{patient_id}/mesh-complete",
         f"{db_path}/pz{patient_id}/mesh-complete",
-        f"{db_path}/pz_{patient_id}/mesh-complete",
-        f"{db_path}/pz{patient_id}/pz{patient_id}-mesh-complete"
     ]
     for p in path_variants:
         print(p)
         if os.path.isdir(p):
             input_dir=p
+            print(f"[INFO] Using input dir: {p}")
             break
     if not input_dir:
         print(f"[ERROR] No valid input directory found for patient {patient_id}")
@@ -74,16 +155,44 @@ def main():
     print(f"--- Processing patient {patient_id} ---")
     
     #File Loading
-    cta_path=os.path.join(cta_path, f"pz{patient_id}", f"{patient_id}_0CT_pre_A.nrrd")
-    vtp_path=os.path.join(input_dir, "mesh-complete.exterior.vtp")
-    surface_node=slicer.util.loadModel(vtp_path)
-    ct_node=slicer.util.loadVolume(cta_path)
+    ct_file = None
+    for phase in ["pre_A", "pre_V"]:
+        candidate = os.path.join(
+            cta_path, f"pz{patient_id}", f"{patient_id}_0CT_{phase}.nrrd"
+        )
+        if os.path.isfile(candidate):
+            ct_file = candidate
+            print(f"[INFO] Using CT phase: {phase}")
+            break
+    if not ct_file:
+        print(f"[ERROR] No CT volume found for pz{patient_id}")
+        return
+    ct_node = slicer.util.loadVolume(ct_file)
+    if not ct_node:
+        print(f"[ERROR] Failed to load CT for pz{patient_id}")
+        return
+    vtp_candidates = [
+        os.path.join(input_dir, f"pz{patient_id}.vtp"),
+        os.path.join(input_dir, "walls_combined.vtp"),
+        os.path.join(input_dir, "mesh-complete.exterior.vtp"),
+    ]
+    vtp_path = None
+    for candidate in vtp_candidates:
+        if os.path.isfile(candidate):
+            vtp_path = candidate
+            print(f"[INFO] Using mesh: {os.path.basename(vtp_path)}")
+            break
+    if not vtp_path:
+        print(f"[ERROR] No .vtp mesh found for pz{patient_id}")
+        return
 
-    if not surface_node or not ct_node:
-        print(f"[ERROR] Failed to load files for patient {patient_id}")
+    surface_node = slicer.util.loadModel(vtp_path)
+    if not surface_node:
+        print(f"[ERROR] Failed to load mesh for pz{patient_id}")
         return
     
     slicer.util.setSliceViewerLayers(background=ct_node, fit=True)
+    
     #display_node=ct_node.GetDisplayNode()
     #if display_node:
     #    display_node.AutoWindowLevelOn()
@@ -93,6 +202,12 @@ def main():
     if storage_node:
         storage_node.SetCoordinateSystem(slicer.vtkMRMLStorageNode.LPS)
     surface_node.HardenTransform()
+
+    #Normalize Mesh to CT
+    if not normalize_mesh_to_Ct(surface_node, ct_node, patient_id):
+        print(f"[ERROR] Failed to align mesh to CT for pz{patient_id}")
+        return
+
     #Mesh -> Segmentation of surface_node
     seg_node=slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode", f"pz{patient_id}-seg")
     if not seg_node:
@@ -240,7 +355,7 @@ def main():
     except Exception as e:
         print(f"[WARN] Screenshot failed: {e}")
     slicer.mrmlScene.Clear(0)
-    
+
 if __name__=="__main__":
     main()
     sys.exit()
