@@ -17,6 +17,7 @@ DATASET_DIR="outputs/dataset"
 SPLITS_DIR="outputs/splits"
 SLICER_BIN="/opt/Slicer-5.10.0-linux-amd64/Slicer" 
 MORPHO_DIR="data/morpho"
+FEATURES_DIR="outputs/features/"
 MESHES_DIR="../simulation_db"
 N_POINTS=8192
 STRATEGY="fps"
@@ -46,28 +47,33 @@ unset PYTHONPATH
 unset PYTHONUSERBASE
 
 mkdir -p "$MORPHO_DIR"
+shopt -s globstar
+rm -rf "$FEATURES_DIR/morpho_unified_metrics.csv"
 
-for patient_vtp in "$VTP_DIR"/*.vtp; do
-	patient_vtp="$VTP_DIR/pz001/pz001_test_last_cycle_metrics.vtp"
-	name=$(basename "$patient_vtp")
-	patient_id="$(echo "$name" | grep -oP '\d+')"
+for patient_vtp in "$VTP_DIR"/**/*.vtp; do
+	patient_folder=$(basename "$(dirname "$patient_vtp")")
+	digits=$(echo "$patient_folder" | tr -dc '0-9')
+	patient_id=$(printf "%03d" "$digits")
 	echo "Processing $patient_id..."
 	xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
 		env -i HOME="$HOME" DISPLAY="$DISPLAY" PATH="$PATH" \
 		$SLICER_BIN \
 		--python-script src/extraction/morpho_extraction_slicer.py \
-		--patient_id "001" \
+		--patient_id "$patient_id" \
 		--db_path "$MESHES_DIR" \
 		--out_dir "$MORPHO_DIR"
+
+	python src/extraction/metrics_computation.py \
+		--patientid "$patient_id" \
+		--in_folder "$MORPHO_DIR" \
+		--out_folder "$FEATURES_DIR"
 done
 
-#Launch code for src/extraction/metrics_computation.py to compute radiomics and morphological features and save them in outputs/features/morpho.csv
-
-#Verify launching src/visualization/visualize.py with --landmarks_en argument to visualize landmarks on meshes
 
 echo "Step 3/4 - Merge CFD features with outcomes labels"
 python src/datasets/build_dataset.py \
 	--features "$FEATURES_CSV" \
+	--morpho "$FEATURES_DIR/morpho_unified_metrics.csv" \
 	--outcomes "$OUTCOMES_CSV" \
 	--out_dir "$DATASET_DIR" \
 	--pointcloud_dir "$POINTCLOUD_DIR"

@@ -29,6 +29,12 @@ def main():
     db_path=os.path.abspath(os.path.join(launch_path, args.db_path))
     out_dir=os.path.abspath(os.path.join(launch_path, args.out_dir))
 
+    #Temp partition
+    custom_temp=os.path.join(out_dir, "slicer_temp")
+    os.makedirs(custom_temp, exist_ok=True)
+    slicer.app.temporaryPath = custom_temp
+    print(f"[INFO] Temporary directory set to: {custom_temp}")
+
     script_dir=os.path.dirname(os.path.abspath(__file__))
     patched_sg=os.path.join(script_dir, "SegmentGeometryPatched.py")
     if os.path.isfile(patched_sg):
@@ -83,6 +89,10 @@ def main():
     #    display_node.AutoWindowLevelOn()
     #surface_node.HardenTransform()
 
+    storage_node=surface_node.GetStorageNode()
+    if storage_node:
+        storage_node.SetCoordinateSystem(slicer.vtkMRMLStorageNode.LPS)
+    surface_node.HardenTransform()
     #Mesh -> Segmentation of surface_node
     seg_node=slicer.mrmlScene.AddNewNodeByClass("vtkMRMLSegmentationNode", f"pz{patient_id}-seg")
     if not seg_node:
@@ -109,13 +119,13 @@ def main():
         return
     print("[INFO] Labelmap exported successfully")
 
-    scalar_vol=slicer.mrmlScene.AddNewNodeByClass("vtkMRMLScalarVolumeNode", f"pz{patient_id}-scalar")
-    parameters={"InputVolume": labelmap_node.GetID(), "OutputVolume": scalar_vol.GetID(), "type": "UnsignedChar"}
-    cli_node=slicer.cli.runSync(slicer.modules.castscalarvolume, None, parameters)
-    cast_ok=(cli_node is not None and scalar_vol.GetImageData() is not None and scalar_vol.GetImageData().GetNumberOfPoints()>0)
-    if not cast_ok:
-        print("[WARN] Cast Scalar VOlume failed")
-        scalar_vol=labelmap_node
+    #scalar_vol=slicer.mrmlScene.AddNewNodeByClass("vtkMRMLScalarVolumeNode", f"pz{patient_id}-scalar")
+    #parameters={"InputVolume": labelmap_node.GetID(), "OutputVolume": scalar_vol.GetID(), "type": "UnsignedChar"}
+    #cli_node=slicer.cli.runSync(slicer.modules.castscalarvolume, None, parameters)
+    #cast_ok=(cli_node is not None and scalar_vol.GetImageData() is not None and scalar_vol.GetImageData().GetNumberOfPoints()>0)
+    #if not cast_ok:
+    #    print("[WARN] Cast Scalar VOlume failed")
+    #    scalar_vol=labelmap_node
    
     #Extract Centerline
     vmtk=ExtractCenterline.ExtractCenterlineLogic()
@@ -123,12 +133,23 @@ def main():
     centerline_table=slicer.mrmlScene.AddNewNodeByClass("vtkMRMLTableNode", "CenterlineTable")
     endpoints_node=slicer.mrmlScene.AddNewNodeByClass("vtkMRMLMarkupsFiducialNode", "Endpoints")
     input_polydata=surface_node.GetPolyData()
-    cleaned_polydata=vmtk.preprocess(input_polydata, 5000, 4, 1)
+    if input_polydata.GetNumberOfCells()>50000:
+        cleaned_polydata=vmtk.preprocess(input_polydata, 50000, 4, 1)
+    else:
+        cleaned_polydata=input_polydata
     network_pd=vmtk.extractNetwork(cleaned_polydata, endpoints_node)
     endpoint_positions = vmtk.getEndPoints(network_pd, startPointPosition=None)
     endpoints_node.RemoveAllControlPoints()
-    for p in endpoint_positions:
-        endpoints_node.AddControlPoint(vtk.vtkVector3d(p))
+    sorted_points=sorted(endpoint_positions, key=lambda p: p[2], reverse=True)
+    if len(sorted_points) < 2:
+        print("[WARN] Not enough endpoints found for centerline extraction")
+        return
+    source_point=sorted_points[0]
+    target_points=sorted_points[1:]
+    endpoints_node.AddControlPoint(vtk.vtkVector3d(source_point))
+    for p in target_points:
+        if p[2]<(source_point[2]-20):
+            endpoints_node.AddControlPoint(vtk.vtkVector3d(p))
     centerline_pd, _=vmtk.extractCenterline(cleaned_polydata, endpoints_node, 1.0)
     vmtk.createCurveTreeFromCenterline(centerline_pd, centerline_curve, centerline_table, 1.0)
     slicer.util.saveNode(centerline_table, os.path.join(out_parent_dir, "centerline_data.csv"))
@@ -218,7 +239,8 @@ def main():
         print(f"[SUCCESS] Screenshot saved in: {shot_path}")
     except Exception as e:
         print(f"[WARN] Screenshot failed: {e}")
-
+    slicer.mrmlScene.Clear(0)
+    
 if __name__=="__main__":
     main()
     sys.exit()

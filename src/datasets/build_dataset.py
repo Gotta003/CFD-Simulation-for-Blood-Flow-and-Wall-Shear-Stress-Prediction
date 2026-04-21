@@ -28,7 +28,7 @@ CFD_PREFIXES=["tawss", "osi", "ecap", "rrt", "pressure", "wss", "velocity", "vor
 
 def get_formatted_pid(name: str) -> str:
     name_str=str(name).strip().lower()
-    digits=re.findall(r'\d+', name)
+    digits=re.findall(r'\d+', name_str)
     if digits:
         return f"pz{int(digits[0]):03d}"
     return name_str
@@ -167,6 +167,7 @@ def write_label_summary(df: pd.DataFrame, out_path: str) -> None:
 def main():
     parser=argparse.ArgumentParser(description="Merge CFD features with clinical outcomes")
     parser.add_argument("--features", default="outputs/features/features.csv")
+    parser.add_argument("--morpho", default="outputs/features/morpho_unified_metrics.csv")
     parser.add_argument("--outcomes", default="data/labels/outcomes.csv")
     parser.add_argument("--out_dir", default="outputs/dataset/")
     parser.add_argument("--pointcloud_dir", default="data/pointclouds/", help="Dir with .npz files used only to add a has_npz flag")
@@ -177,6 +178,11 @@ def main():
     feat_df=pd.read_csv(args.features)
     feat_df["patient_id"]=feat_df["patient_id"].apply(get_formatted_pid)
     print(f"{len(feat_df)} patients, {len(feat_df.columns)} columns")
+    #Morphological Features
+    print(f"Loading morphological features: {args.morpho}")
+    morpho_df=pd.read_csv(args.morpho)
+    morpho_df["patient_id"]=morpho_df["patient_id"].apply(get_formatted_pid)
+    morpho_features_cols=[c for c in morpho_df.columns if c!="patient_id"]
     #Outcomes
     print(f"Loading outcomes: {args.outcomes}")
     out_df=load_outcomes(args.outcomes)
@@ -187,7 +193,8 @@ def main():
         print(f"    {col}: {int(out_df[col].sum())} positive")
     #Merge
     keep_out=["patient_id", "operation_flag", "complication_raw"]+ALL_LABEL_COLS
-    merged=feat_df.merge(out_df[keep_out], on="patient_id", how="inner", validate="1:1")
+    merged=feat_df.merge(out_df[keep_out], on="patient_id", how="inner")
+    merged=merged.merge(morpho_df, on="patient_id", how="inner")
     print(f"\nMerged: {len(merged)} patients ({len(feat_df)-len(merged)} unmatched and dropped)")
     if len(merged)==0:
         print("\n[CRITICAL ERROR] Merge resulted in 0 patients.")
@@ -203,6 +210,7 @@ def main():
         merged["has_npz"]=0
     #Validate
     issues=validate_merge(merged, len(feat_df), len(out_df))
+    cfd_cols=get_cfd_feature_cols(merged)    
     if issues:
         print("\n[VALIDATION ISSUES]")
         for i in issues:
@@ -211,21 +219,24 @@ def main():
         print("Validation OK")
     #Adjust Missing CFD
     feature_cols=get_cfd_feature_cols(merged)
-    n_miss=merged[feature_cols].isna().sum().sum()
+    all_feature_cols=feature_cols+morpho_features_cols
+    n_miss=merged[all_feature_cols].isna().sum().sum()
     if n_miss>0:
         print(f"\nInputing {n_miss} missing CFD values with column median")
         for col in feature_cols:
-            merged[col]=merged[col].fillna(merged[col].median())
+            if merged[col].isna().any():
+                merged[col]=merged[col].fillna(merged[col].median())
     #Column Ordering
     meta=["patient_id", "operation_flag", "complication_raw", "has_npz"]
-    others=[c for c in merged.columns if c not in meta + feature_cols]
-    merged=merged[meta+TARGET_COLS+["any_endoleak"]+feature_cols+others]
+    cols_order=meta+TARGET_COLS+["any_endoleak"]+cfd_cols+morpho_features_cols
+    others=[c for c in merged.columns if c not in cols_order]
+    merged=merged[cols_order+others]
     #Saving
     dataset_path=os.path.join(args.out_dir, "dataset.csv")
     merged.to_csv(dataset_path, index=False)
     print(f"\nDataset saved -> {dataset_path} {merged.shape}")
-    feat_list_path=os.path.join(args.out_dir, "feature_columns.txt")
-    Path(feat_list_path).write_text("\n".join(feature_cols))
+    feat_list_path=os.path.join(args.out_dir, "dataset_columns.txt")
+    Path(feat_list_path).write_text("\n".join(all_feature_cols))
     print(f"Feature list -> {feat_list_path} ({len(feature_cols)} columns)")
     write_label_summary(merged, os.path.join(args.out_dir, "label_summary.txt"))
     
