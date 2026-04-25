@@ -90,7 +90,16 @@ for patient_vtp in "$VTP_DIR"/**/*.vtp; do
 	patient_folder=$(basename "$(dirname "$patient_vtp")")
 	digits=$(echo "$patient_folder" | tr -dc '0-9')
 	patient_id=$(printf "%03d" "$((10#$digits))")
+
+	PATIENT_OUT_DIR="$MORPHO_DIR/pz${patient_id}"
 	echo "Processing $patient_id in $patient_folder..."
+	if [ -d "$PATIENT_OUT_DIR" ] && [ "$(ls -A $PATIENT_OUT_DIR)" 2>/dev/null" ]; then
+		python src/extraction/metrics_computation.py \
+			--patientid "$patient_id" \
+			--in_folder "$MORPHO_DIR" \
+			--out_folder "$FEATURES_DIR"
+		continue
+	fi
 	xvfb-run --auto-servernum --server-args="-screen 0 1280x1024x24" \
 		env -i HOME="$HOME" DISPLAY="$DISPLAY" PATH="$PATH" \
 		$SLICER_BIN \
