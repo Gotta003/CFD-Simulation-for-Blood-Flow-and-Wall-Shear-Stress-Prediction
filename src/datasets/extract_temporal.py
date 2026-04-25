@@ -83,7 +83,7 @@ def discover_files(input_path):
             target_proc_dir=sorted(subdirs, key=get_proc_num)[-1]
             print(f"[INFO] Auto-detected proc directory. Targeting: {target_proc_dir.name}")
             search_dir=target_proc_dir
-        files=sorted(list(search_dir.rglob("*.vtp"))+list(search_dir.rglob("*.vtu")))
+        files=sorted(list(search_dir.rglob("*.vtu")))
         if not files:
             raise FileNotFoundError(f"No .vtp/.vtu files found in {input_path}")
         entries=[]

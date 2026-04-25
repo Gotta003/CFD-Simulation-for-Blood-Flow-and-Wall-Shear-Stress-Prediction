@@ -85,7 +85,7 @@ def main():
     launch_path=os.getcwd()
     parser=argparse.ArgumentParser(description="Batch Morphological Features Extraction for AAA in 3D Slicer")
     parser.add_argument("--patient_id", required=True, help="Patient ID")
-    parser.add_argument("--db_path", default="../simulation_db", help="Path to the database")
+    parser.add_argument("--db_path", default="/data/simulation_db", help="Path to the database")
     parser.add_argument("--cta_path", default="../cta", help="Path to CTA image folder (not users)")
     parser.add_argument("--out_dir", default="data/morpho", help="Output directory")
     args = parser.parse_args()

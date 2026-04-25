@@ -5,7 +5,7 @@ import SimpleITK as sitk
 import pandas as pd
 
 def get_mesh_info(vtp_path):
-    if not os.path.exists(vtp_path):
+    if not vtp_path or not os.path.exists(vtp_path):
         return None
     reader=vtk.vtkXMLPolyDataReader()
     reader.SetFileName(vtp_path)
@@ -22,7 +22,7 @@ def get_mesh_info(vtp_path):
     }
 
 def get_ct_info(nrrd_path):
-    if not os.path.exists(nrrd_path):
+    if not nrrd_path or not os.path.exists(nrrd_path):
         return None
     img=sitk.ReadImage(nrrd_path)
     origin=img.GetOrigin()
@@ -36,18 +36,31 @@ def get_ct_info(nrrd_path):
         "Direction": str([round(d,2) for d in direction])
     }
 
+def find_vtp_file(p_folder, db_paths):
+    for db in db_paths:
+        vtp_primary=os.path.join(db, p_folder, "Meshes", f"{p_folder}.vtp")
+        if os.path.exists(vtp_primary):
+            return vtp_primary
+        vtp_alternative=os.path.join(db, p_folder, "Simulations", p_folder, "mesh-complete", "mesh-complete.exterior.vtp")
+        if os.path.exists(vtp_alternative):
+            return vtp_alternative
+    return None
+
 def main():
-    db_path="../simulation_db"
+    db_paths=["/data/simulation_db", "../simulation_db"]
     cta_path="../cta"
     results=[]
-    patients=[d for d in os.listdir(db_path) if d.startswith("pz")]
-    patients.sort()
-    for p_folder in patients:
+
+    unique_patients=set()
+    for db in db_paths:
+        if os.path.exists(db):
+            patients=[d for d in os.listdir(db) if d.startswith("pz")]
+            unique_patients.update(patients)
+    sorted_patients=sorted(list(unique_patients))
+    for p_folder in sorted_patients:
         p_id=p_folder.replace('pz', '')
         print(f"Auditing Patient {p_id}...")
-        vtp_file=os.path.join(db_path, p_folder, "Meshes", f"{p_folder}.vtp")
-        if not os.path.exists(vtp_file):
-            vtp_file=os.path.join(db_path, p_folder, "Simulations", p_folder, "mesh-complete", "mesh-complete.exterior.vtp")
+        vtp_file=find_vtp_file(p_folder, db_paths)
         nrrd_file=os.path.join(cta_path, p_folder, f"{p_id}_0CT_pre_A.nrrd")
         row={"Patient_ID": p_id}
         try:
@@ -67,7 +80,8 @@ def main():
             print(f"  [ERROR] Patient {p_id}: {e}")
         results.append(row)
     df=pd.DataFrame(results)
-    df.to_csv("outputs/dataset/aligment_audit.csv", index=False)
+    os.makedirs("outputs/dataset/", exist_ok=True)
+    df.to_csv("outputs/dataset/alignment_audit.csv", index=False)
 
 if __name__ == "__main__":
     main()
