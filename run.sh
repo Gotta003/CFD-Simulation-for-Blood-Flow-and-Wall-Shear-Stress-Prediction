@@ -9,6 +9,7 @@ source .evar_env/bin/activate
 #3) Pipeline Start Dataset
 set -euo pipefail
 VTP_DIR="data/vtp_files"
+VTU_DIR="/data/simulation_db"
 FEATURES_CSV="outputs/features/features.csv"
 OUTCOMES_CSV="data/labels/outcomes.csv"
 NPZ_CHECKS_DIR="outputs/npz_checks/"
@@ -24,16 +25,43 @@ STRATEGY="fps"
 SEED=42
 
 echo "Step 1/4 - Sample point clouds from .vtp meshes"
-python src/datasets/samples_pointclouds.py \
-	--vtp_dir "$VTP_DIR" \
-	--out_dir "$POINTCLOUD_DIR" \
-	--n_points "$N_POINTS" \
-	--strategy "$STRATEGY" \
-	--seed "$SEED"
+for patient_vtp in "$VTP_DIR"/**/*.vtp; do
+	patient_folder=$(basename "$(dirname "$patient_vtp")")
+	digits=$(echo "$patient_folder" | tr -dc '0-9')
+	patient_id=$(printf "%03d" "$((10#$digits))")
+	echo "Processing $patient_id in $patient_folder..."
+	input="$VTU_DIR/pz${patient_id}/Simulations/pz${patient_id}/"
+	python src/datasets/extract_temporal.py \
+		--input "$input" \
+		--out_dir "$POINTCLOUD_DIR" \
+		--name "pz${patient_id}" \
+		--n_points "$N_POINTS" \
+		--strategy "$STRATEGY" \
+		--seed "$SEED" \
+		--fixed_grid
 
-python3 src/visualization/check_cloudpoints.py \
-	--input "$POINTCLOUD_DIR" \
-	--out_dir "$NPZ_CHECKS_DIR"
+	python src/visualization/visualize_temporal.py \
+		--input "$POINTCLOUD_DIR/pz${patient_id}" \
+		--out_dir "$NPZ_CHECKS_DIR/pz${patient_id}" \
+		--mode "animate" \
+		--field "v_mag" \
+
+	python src/visualization/visualize_temporal.py \
+		--input "$POINTCLOUD_DIR/pz${patient_id}" \
+		--out_dir "$NPZ_CHECKS_DIR/pz${patient_id}" \
+		--mode "report"
+done
+
+#python src/datasets/samples_pointclouds.py \
+#	--vtp_dir "$VTP_DIR" \
+#	--out_dir "$POINTCLOUD_DIR" \
+#	--n_points "$N_POINTS" \
+#	--strategy "$STRATEGY" \
+#	--seed "$SEED"
+
+#python3 src/visualization/check_cloudpoints.py \
+#	--input "$POINTCLOUD_DIR" \
+#	--out_dir "$NPZ_CHECKS_DIR"
 
 echo "Step 2/4 - Extract morphological and radiomics features"
 

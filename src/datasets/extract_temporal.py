@@ -1,3 +1,4 @@
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import argparse
 import json
 import os
@@ -69,19 +70,33 @@ def _get_field(mesh, field: str, backend: str) -> np.ndarray | None:
     return None    
 
 def discover_files(input_path):
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input path {input_path} does not exist")
+    
     if input_path.is_dir():
-        files=sorted(list(input_path.glob("*.vtp"))+list(input_path.glob("*.vtu")))
+        subdirs=[d for d in input_path.iterdir() if d.is_dir() and d.name.endswith("-procs")]
+        search_dir=input_path
+        if subdirs:
+            def get_proc_num(d):
+                match=re.search(r'^(\d+)-procs', d.name)
+                return int(match.group(1)) if match else 0
+            target_proc_dir=sorted(subdirs, key=get_proc_num)[-1]
+            print(f"[INFO] Auto-detected proc directory. Targeting: {target_proc_dir.name}")
+            search_dir=target_proc_dir
+        files=sorted(list(search_dir.rglob("*.vtp"))+list(search_dir.rglob("*.vtu")))
         if not files:
             raise FileNotFoundError(f"No .vtp/.vtu files found in {input_path}")
         entries=[]
         for p in files:
-            nums=re.findall(r"(\d+(?:\.\d+)?)", p.stem)
-            t=float(nums[-1]) if nums else float(files.index(p))
-            entries.append((t,p))
+            match=re.search(r'(?:result_)?(\d+(?:\.\d+)?)', p.stem)
+            if match:
+                t=float(match.group(1))
+            else:
+                t=float(files.index(p))
+            entries.append((t, p))
         entries.sort(key=lambda x: x[0])
-        #Normalization time to index
         ts=[e[0] for e in entries]
-        if max(ts)==len(ts)-1:
+        if ts and max(ts)==len(ts)-1:
             print("[INFO] No physical timestamps found - using step index as t.")
         return entries
     return [(0.0, input_path)]
@@ -130,7 +145,8 @@ def _fps(points: np.ndarray, n_sample: int, rng: np.random.Generator) -> np.ndar
         sel[i]=int(np.argmax(dists))
     return sel
 
-def process_instant(path: Path, n_points: int, strategy: str, rng: np.random.Generator, ref_indices: np.ndarray | None=None) -> dict | None:
+def process_instant(path: Path, n_points: int, strategy: str, seed: int, ref_indices: np.ndarray | None=None, all_points: bool=False) -> dict | None:
+    rng=np.random.default_rng(seed)
     try:
         mesh, backend=_load(str(path))
     except Exception as e:
@@ -165,14 +181,17 @@ def process_instant(path: Path, n_points: int, strategy: str, rng: np.random.Gen
     valid_mask=(
         np.all(np.isfinite(pts), axis=1) &
         np.isfinite(vx_out) & np.isfinite(vy_out) & np.isfinite(vz_out) &
-        np.isfinite(p_out),
+        np.isfinite(p_out) &
         np.isfinite(wx_out) & np.isfinite(wy_out) & np.isfinite(wz_out)
     )
     valid_idx=np.where(valid_mask)[0]
     if len(valid_idx)==0:
         print(f"[ERROR] No valid points in {path.name}")
         return None
-    if ref_indices is not None:
+    if all_points:
+        ref_indices=np.arange(len(valid_idx))
+        sel=valid_idx
+    elif ref_indices is not None:
         sel=valid_idx[np.clip(ref_indices, 0, len(valid_idx)-1)]
     else:
         pts_valid=pts[valid_idx]
@@ -207,8 +226,10 @@ def main():
     parser.add_argument("--n_points", type=int, default=4096)
     parser.add_argument("--strategy", choices=["fps", "random"], default="fps")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--workers", type=int, default=os.cpu_count()-1, help="Number of parallel workers")
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--fixed_grid", action="store_true", help="Ise same spatial sample across all timesteps")
+    parser.add_argument("--all_points", action="store_true", help="Use all points (overrides --n_points and --strategy)")
 
     args=parser.parse_args()
     input_path=Path(args.input)
@@ -222,29 +243,52 @@ def main():
     print(f"Discovering time steps in: {input_path}")
     entries=discover_files(input_path)
     print(f"Found {len(entries)} files")
-    rng=np.random.default_rng(args.seed)
+    if not entries:
+        return
     ref_indices=None
-    xyz=[]
-    t=[]
-    vx=[]
-    vy=[]
-    vz=[]
-    wx=[]
-    wy=[]
-    wz=[]
-    p=[]
+    if args.fixed_grid and not args.all_points:
+        print("Establishing fixed grid from first timestep...")
+        first_t, first_path=entries[0]
+        first_result=process_instant(first_path, args.n_points, args.strategy, args.seed, ref_indices=None, all_points=False)
+        if first_result is None:
+            print(f"[ERROR] Failed to process first timestep. Cannot establish fixed grid. Exiting...")
+            return
+        ref_indices=first_result["_ref_indices"]
+        print(f"Fixed grid established with {len(ref_indices)} points.")
+    result_dict={}
+    rng=np.random.default_rng(args.seed)
+    xyz, t, vx, vy, vz, p, wx, wy, wz=[], [], [], [], [], [], [], [], []
     mask=[]
-    fields_found: set[str]=set()
-    for i, (t_val, fpath) in enumerate(entries):
-        print(f" [{i+1}/{len(entries)}] t={t_val:.4g} {fpath.name}")
-        result=process_instant(fpath, args.n_points, args.strategy, rng, ref_indices=ref_indices if args.fixed_grid else None)
-        if result is None:
-            print(f"[SKIP] Failed - skipping this timestep")
-            continue
-        if args.fixed_grid and ref_indices is None:
-            ref_indices=result["_ref_indices"]
+    fields_found=set()
+
+    print(f"\nLaunching parallel extraction with {args.workers} workers...")
+    with ProcessPoolExecutor(max_workers=args.workers) as executor:
+        future_to_idx={
+            executor.submit(process_instant, fpath, args.n_points, args.strategy, args.seed+i, ref_indices, args.all_points):
+            i for i, (val, fpath) in enumerate(entries)
+        }
+        for future in as_completed(future_to_idx):
+            i=future_to_idx[future]
+            try:
+                res=future.result()
+                if res is not None:
+                    result_dict[i]=res
+                    fields_found.update(res["_fields_found"])
+                    print(f"[DONE] [{i+1}/{len(entries)}] t={entries[i][0]:.4g} {entries[i][1].name} - fields: {res['_fields_found']}")
+                else:
+                    print(f"[FAILED] [{i+1}/{len(entries)}] t={entries[i][0]:.4g} {entries[i][1].name} - no valid points")
+            except Exception as e:
+                print(f"[ERROR] Failed to process {entries[i][1].name}: {e}")
+        if not result_dict:
+            print("[ERROR] No valid data extracted. Exiting...")
+            return
+        
+    print(f"\nAssembling dataset from {len(result_dict)}")
+    sorted_indices=sorted(result_dict.keys())
+    for i in sorted_indices:
+        result=result_dict[i]
         xyz.append(result["xyz"])
-        t.append(t_val)
+        t.append(entries[i][0])
         vx.append(result["vx"])
         vy.append(result["vy"])
         vz.append(result["vz"])
@@ -253,13 +297,7 @@ def main():
         wy.append(result["wy"])
         wz.append(result["wz"])
         mask.append(result["mask"])
-        fields_found.update(result["_ref_indices"])
-    if not t:
-        print("[ERROR] No shots processed. Exiting...")
-        return
-    T=len(t)
-    N=args.n_points
-    print(f"\nAssembling dataset: T={T} timesteps, N={N} points/step")
+
     data={
         "xyz": np.stack(xyz, axis=0),
         "t": np.stack(t, dtype=np.float32),

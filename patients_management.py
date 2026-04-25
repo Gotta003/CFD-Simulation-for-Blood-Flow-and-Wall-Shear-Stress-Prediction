@@ -10,7 +10,7 @@ import re
 from datetime import datetime
 
 FILE_NAME="./data/labels/outcomes.csv"
-SEG_BASE="../simulation_db/"
+SEG_BASE=["/data/simulation_db/", "../simulation_db/"]
 REPORTS_BASE="../report/"
 IMAGES_BASE="./outputs/mesh_heatmaps/"
 FEATURES_FILE="./outputs/features/features.csv"
@@ -51,6 +51,13 @@ REPORT_COLOR_MAP={
     "Missing": "#dde0e3"
 }
 
+def get_patient_seg_base(id_str: str) -> str:
+    found_bases=[]
+    for base in SEG_BASE:
+        if os.path.exists(os.path.join(base, id_str)):
+            found_bases.append(base)
+    return found_bases
+
 def run_post_processing(patient_id, vtp_dir):
     id_str=f"pz{int(patient_id):03d}"
     print(f"--- Extract features for {id_str} ---")
@@ -75,11 +82,8 @@ def detect_segmentation_status(patient_id: int) -> bool:
         id_str=f"pz{int(patient_id):03d}"
     except (ValueError, TypeError):
         return False
-    if not os.path.exists(SEG_BASE):
-        return False
-    
-    patient_folder= os.path.join(SEG_BASE, id_str)
-    return os.path.isdir(patient_folder)
+
+    return len(get_patient_seg_base(id_str))>0
 
 def detect_report_status(patient_id: int, examined_files_str: str) -> bool:
     base=REPORTS_BASE
@@ -108,19 +112,18 @@ def detect_cfd_status(patient_id: int) -> bool:
     except (ValueError, TypeError):
         return False
     
-    path_to_check= os.path.join(SEG_BASE, id_str, "Simulations", id_str)
-    if not os.path.exists(path_to_check):
-        return False 
-    
-    try: 
-        for item in os.listdir(path_to_check):
-            item_path = os.path.join(path_to_check, item)
-            if os.path.isdir(item_path) and item.endswith("-procs"):
-                if item[:2].isdigit():
-                    return True
-    except OSError:
-        return False
-
+    for seg_base in get_patient_seg_base(id_str):
+        path_to_check= os.path.join(seg_base, id_str, "Simulations", id_str)
+        if not os.path.exists(path_to_check):
+            continue
+        try:
+            for item in os.listdir(path_to_check):
+                item_path=os.path.join(path_to_check, item)
+                if os.path.isdir(item_path) and item.endswith("-procs"):
+                    if item[:2].isdigit():
+                        return True
+        except OSError:
+            continue
     return False
 
 def detect_simulation_status(patient_id: int) -> str:
@@ -129,58 +132,72 @@ def detect_simulation_status(patient_id: int) -> str:
     except (ValueError, TypeError):
         return "not available"
 
-    patient_main_folder = os.path.join(SEG_BASE, id_str)
-    sim_path = os.path.join(patient_main_folder, "Simulations", id_str)
-
-    if not os.path.exists(patient_main_folder):
+    valid_bases = get_patient_seg_base(id_str)
+    if not valid_bases:
         return "not available"
 
-    try:
-        main_contents = os.listdir(patient_main_folder)
-        proc_folders = []
-        if os.path.exists(sim_path):
-            proc_folders = [d for d in os.listdir(sim_path) 
-                           if d.endswith("-procs") and os.path.isdir(os.path.join(sim_path, d))]
-
-        if not proc_folders:
-            if len(main_contents) > 0:
-                return "To Run"
-            else:
-                return "not available"
-
-        target_dir = os.path.join(sim_path, sorted(proc_folders)[-1])
-        files = os.listdir(target_dir)
-        vtp_files=[f for f in files if f.lower().endswith(".vtp")]
-        if vtp_files:
-            patient_vtp_dir=os.path.join(VTP_BASE, id_str)
-            os.makedirs(patient_vtp_dir, exist_ok=True)
-            for vtp in vtp_files:
-                src_path=os.path.join(target_dir, vtp)
-                if vtp.startswith(id_str):
-                    new_filename=vtp
-                else:
-                    new_filename=f"{id_str}_{vtp}"
-                    
-                dst_path=os.path.join(patient_vtp_dir, new_filename)
-                if not os.path.exists(dst_path):
-                    shutil.copy2(src_path, dst_path)
-                   
-            def _check_image_folder_emptiness(pid):
-                img_folder=os.path.join(IMAGES_BASE, f"pz{int(pid):03d}")
-                return not os.path.exists(img_folder) or len(os.listdir(img_folder))==0
-
-            if _check_image_folder_emptiness(patient_id):
-                run_post_processing(patient_id, patient_vtp_dir)
-            return "Post processed"
-
-        if "result_960.vtu" in files:
-            return "Completed: post processing required"
-            
-        return "Running"
-
-    except OSError:
-        return "not available"
+    overall_status = "not available"
+    all_vtp_files_copied = False
+    has_any_contents = False
     
+    patient_vtp_dir = os.path.join(VTP_BASE, id_str)
+
+    # Loop through every valid base to fetch and aggregate data
+    for seg_base in valid_bases:
+        patient_main_folder = os.path.join(seg_base, id_str)
+        sim_path = os.path.join(patient_main_folder, "Simulations", id_str)
+        
+        try:
+            main_contents = os.listdir(patient_main_folder)
+            if len(main_contents) > 0:
+                has_any_contents = True
+                
+            proc_folders = []
+            if os.path.exists(sim_path):
+                proc_folders = [d for d in os.listdir(sim_path) 
+                               if d.endswith("-procs") and os.path.isdir(os.path.join(sim_path, d))]
+
+            if not proc_folders:
+                continue
+
+            target_dir = os.path.join(sim_path, sorted(proc_folders)[-1])
+            files = os.listdir(target_dir)
+            vtp_files = [f for f in files if f.lower().endswith(".vtp")]
+            
+            # Fetch files from this specific base
+            if vtp_files:
+                os.makedirs(patient_vtp_dir, exist_ok=True)
+                for vtp in vtp_files:
+                    src_path = os.path.join(target_dir, vtp)
+                    new_filename = vtp if vtp.startswith(id_str) else f"{id_str}_{vtp}"
+                    dst_path = os.path.join(patient_vtp_dir, new_filename)
+                    if not os.path.exists(dst_path):
+                        shutil.copy2(src_path, dst_path)
+                all_vtp_files_copied = True
+
+            # Track the highest status found across all bases
+            if "result_960.vtu" in files and overall_status not in ["Post processed"]:
+                overall_status = "Completed: post processing required"
+            elif overall_status in ["not available", "To Run"]:
+                overall_status = "Running"
+
+        except OSError:
+            continue
+
+    # Determine final status after checking all bases
+    if all_vtp_files_copied:
+        def _check_image_folder_emptiness(pid):
+            img_folder = os.path.join(IMAGES_BASE, f"pz{int(pid):03d}")
+            return not os.path.exists(img_folder) or len(os.listdir(img_folder)) == 0
+
+        if _check_image_folder_emptiness(patient_id):
+            run_post_processing(patient_id, patient_vtp_dir)
+        return "Post processed"
+        
+    if overall_status != "not available":
+        return overall_status
+        
+    return "To Run" if has_any_contents else "not available"
 
 def detect_image_status(patient_id: int) -> bool:
     try:

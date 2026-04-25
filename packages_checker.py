@@ -14,6 +14,7 @@ checks={
     "shap": lambda: __import__("shap").__version__,
     "matplotlib": lambda: __import__("matplotlib").__version__,
     "plotly": lambda: __import__("plotly").__version__,
+    "imageio": lambda: __import__("imageio").__version__,
 }
 
 GREEN="\033[0;32m"
