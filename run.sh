@@ -93,7 +93,7 @@ for patient_vtp in "$VTP_DIR"/**/*.vtp; do
 
 	PATIENT_OUT_DIR="$MORPHO_DIR/pz${patient_id}"
 	echo "Processing $patient_id in $patient_folder..."
-	if [ -d "$PATIENT_OUT_DIR" ] && [ "$(ls -A $PATIENT_OUT_DIR)" 2>/dev/null" ]; then
+	if [ -d "$PATIENT_OUT_DIR" ] && [ "$(ls -A $PATIENT_OUT_DIR)" 2>/dev/null ]; then
 		python src/extraction/metrics_computation.py \
 			--patientid "$patient_id" \
 			--in_folder "$MORPHO_DIR" \

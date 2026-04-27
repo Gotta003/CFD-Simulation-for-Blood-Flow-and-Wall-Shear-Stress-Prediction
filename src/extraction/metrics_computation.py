@@ -22,7 +22,7 @@ def extract_3d_stats(volume_path):
 
 def build_main_trunk(cl: pd.DataFrame, tol_mm: float=2.0) -> pd.DataFrame:
     n=len(cl)
-    starts=cl[['StartPoinPosition_R', 'StartPointPosition_A', 'StartPointPosition_S']].values
+    starts=cl[['StartPointPosition_R', 'StartPointPosition_A', 'StartPointPosition_S']].values
     ends=cl[['EndPointPosition_R', 'EndPointPosition_A', 'EndPointPosition_S']].values
     children={i: [] for i in range(n)}
     for i in range(n):

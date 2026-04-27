@@ -1,3 +1,5 @@
+#We should use the version on the paper main_CFDPCNNmd_5fold.py
+
 from src.models.registry import COMPLICATIONS, COMPLICATION_KEYS, HAS_XGB, HAS_TORCH
 from dataclasses import dataclass, field
 from typing import List, Tuple, Dict
