@@ -98,4 +98,13 @@ class EVARDataset(Dataset):
         row=self.df.iloc[idx]
         patient_id=row["patient_id"]
         labels=torch.tensor([float(row[c]) for c in TARGET_COLS], dtype=torch.float32)
-       
+        feat=self.df.iloc[idx][self.feature_cols].values.astype(np.float32)
+        feat=np.nan_to_num(feat, nan=0.0)
+        xyz, cfd=self._load_pointcloud(patient_id)
+        xyz, cfd=_random_resample(xyz, cfd, self.n_points, self._rng)
+        if self.augment:
+            xyz=_augment_point_cloud(xyz, self._rng)
+        feat, xyz, cfd=self._normalise(feat, xyz, cfd)
+        point=np.concatenate([xyz, cfd], axis=1).T.astype(np.float32)
+        feat_t=torch.tensor(feat, dtype=torch.float32)
+        return point, feat_t, labels
