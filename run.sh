@@ -13,13 +13,16 @@ VTU_DIR="/data/simulation_db"
 FEATURES_CSV="outputs/features/features.csv"
 OUTCOMES_CSV="data/labels/outcomes.csv"
 NPZ_CHECKS_DIR="outputs/npz_checks/"
+NPZ_CHECKS_VTP_DIR="outputs/npz_checks_vtp/"
 POINTCLOUD_DIR="outputs/pointclouds/"
+POINTCLOUD_VTP_DIR="outputs/pointclouds_vtp/"
 DATASET_DIR="outputs/dataset"
 SPLITS_DIR="outputs/splits"
 SLICER_BIN="/opt/Slicer-5.10.0-linux-amd64/Slicer" 
 MORPHO_DIR="data/morpho"
 FEATURES_DIR="outputs/features"
-MESHES_DIR="/data/simulation_db"
+#MESHES_DIR="/data/simulation_db"
+MESHES_DIR=~/Challenge3/simulation_db
 N_POINTS=16384
 STRATEGY="fps"
 SEED=42
@@ -55,18 +58,16 @@ chmod +x ./scripts/move.sh
 #		--mode "report"
 #done
 #ONLY SURFACE
-#python src/datasets/samples_pointclouds.py \
-#	--vtp_dir "$VTP_DIR" \
-#	--out_dir "$POINTCLOUD_DIR" \
-#	--n_points "$N_POINTS" \
-#	--strategy "$STRATEGY" \
-#	--seed "$SEED"
+python src/datasets/extract_wall.py \
+	--vtp_dir "$VTP_DIR" \
+	--out_dir "$POINTCLOUD_VTP_DIR" \
+	--n_points "$N_POINTS" \
+	--strategy "$STRATEGY" \
+	--seed "$SEED"
 
 #python3 src/visualization/check_cloudpoints.py \
-#	--input "$POINTCLOUD_DIR" \
-#	--out_dir "$NPZ_CHECKS_DIR"
-
-
+#	--input "$POINTCLOUD_VTP_DIR" \
+#	--out_dir "$NPZ_CHECKS_VTP_DIR"
 
 echo "Step 2/4 - Extract morphological and radiomics features"
 

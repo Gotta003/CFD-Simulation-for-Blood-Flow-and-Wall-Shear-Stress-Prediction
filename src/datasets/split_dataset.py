@@ -6,17 +6,6 @@ from pathlib import Path
 
 TARGET_COLS=["endoleak_type1a", "endoleak_type1b", "endoleak_type2", "endoleak_type3", "endoleak_type4", "other_migration", "other_thrombosis", "other_reintervention", "other_rupture"]
 
-#def strat_key(df: pd.DataFrame) -> np.ndarray:
-#    t1a=df["endoleak_type1a"].values.astype(int)
-#    t1b=df["endoleak_type1b"].values.astype(int)
-#    t2=df["endoleak_type2"].values.astype(int)
-#    t3=df["endoleak_type3"].values.astype(int)
-#    t4=df["endoleak_type4"].values.astype(int)
-#    om=df["other_migration"].values.astype(int)
-#    ot=df["other_thrombosis"].values.astype(int)
-#    ore=df["other_reintervention"].values.astype(int)
-#    oru=df["other_rupture"].values.astype(int)
-#    return t1a*256+t1b*128+t2*64+t3*32+t4*16+om*8+ot*4+ore*2+oru #0-512
 
 def strat_key(df: pd.DataFrame) -> np.ndarray:
     t1=df["endoleak_type1"].values.astype(int)

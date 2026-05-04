@@ -1,0 +1,6 @@
+randomseed: 2
+num_worker: 2
+predthreshold: 0.5
+setting: "xgboost"
+datapath: './outputs'
+output_path: './outputs'

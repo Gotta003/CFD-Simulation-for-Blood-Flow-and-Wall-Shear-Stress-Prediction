@@ -33,6 +33,11 @@ fi
 patient_folder=$(basename "$patient_dir")
 digits=$(echo "$patient_folder" | tr -dc '0-9')
 patient_id=$(printf "%03d" "$((10#$digits))")
+CHECK_DIR="$NPZ_CHECKS_DIR/pz${patient_id}"
+if [ -d "$CHECK_DIR" ]; then
+	echo "Output directory $CHECK_DIR already exists. Skipping patient $patient_id to avoid overwriting."
+	exit 1
+fi
 echo "Array Task $SLURM_ARRAY_TASK_ID → Processing patient $patient_id in folder $patient_folder"
 input="$VTU_DIR/pz${patient_id}/Simulations/pz${patient_id}/"
 if [ ! -d "$input" ]; then

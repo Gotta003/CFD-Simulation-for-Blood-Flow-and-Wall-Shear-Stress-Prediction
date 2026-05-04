@@ -33,3 +33,4 @@ pyyaml>=6.0.1
 
 SimpleITK 
 imageio
+tensorboardX

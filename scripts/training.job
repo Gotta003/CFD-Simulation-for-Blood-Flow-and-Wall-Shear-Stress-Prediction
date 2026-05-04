@@ -1,0 +1,23 @@
+#!/bin/bash
+#SBATCH --job-name=model_train
+#SBATCH --partition=meditech-long
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=8
+#SBATCH --gres=gpu:1
+#SBATCH --time=12:00:00
+#SBATCH --mem=128GB
+#SBATCH --output=training_%j.log
+
+BASE_DIR="/mnt/meditech/group3/vtp_analysis"
+
+source "$BASE_DIR/.evar_env/bin/activate"
+
+MODEL="pointnet"  # or "xgboost", "pinn"
+
+echo "Starting 5-fold cross-validation training for model ${MODEL}"
+
+python "$BASE_DIR/main.py" --setting "$MODEL"
+
+echo "Training complete for model ${MODEL}"
+deactivate

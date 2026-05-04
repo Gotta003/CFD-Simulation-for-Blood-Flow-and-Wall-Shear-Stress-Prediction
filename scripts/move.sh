@@ -22,8 +22,15 @@ rsync -avP \
     --include="*.py" \
     --include="*.txt" \
     --include="*.job" \
+    --include="*.yaml" \
     --exclude="*" \
     /home/group4/Challenge3/vtp_analysis/ matteo.gottardelli@baldo.disi.unitn.it:/mnt/meditech/group3/vtp_analysis/
+
+rsync -avP /home/group4/Challenge3/vtp_analysis/outputs/splits/ matteo.gottardelli@baldo.disi.unitn.it:/mnt/meditech/group3/vtp_analysis/outputs/splits/
+
+rsync -avP /home/group4/Challenge3/vtp_analysis/outputs/dataset/ matteo.gottardelli@baldo.disi.unitn.it:/mnt/meditech/group3/vtp_analysis/outputs/dataset/
+
+rsync -avP /home/group4/Challenge3/vtp_analysis/outputs/pointclouds_vtp/ matteo.gottardelli@baldo.disi.unitn.it:/mnt/meditech/group3/vtp_analysis/outputs/pointclouds_vtp/
 
 rsync -avP \
     --ignore-existing \
