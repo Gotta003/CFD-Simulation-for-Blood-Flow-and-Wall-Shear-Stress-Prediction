@@ -1,0 +1,1 @@
+from src.models.pointnet import PointNet

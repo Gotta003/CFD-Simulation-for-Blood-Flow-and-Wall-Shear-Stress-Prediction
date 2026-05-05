@@ -39,3 +39,7 @@ rsync -avP \
     matteo.gottardelli@baldo.disi.unitn.it:/mnt/meditech/group3/vtp_analysis/outputs/pointclouds/ /home/group4/Challenge3/vtp_analysis/outputs/pointclouds/
 
 rsync -avP  matteo.gottardelli@baldo.disi.unitn.it:/mnt/meditech/group3/vtp_analysis/outputs/npz_checks/ /home/group4/Challenge3/vtp_analysis/outputs/npz_checks/
+
+rsync -avP  matteo.gottardelli@baldo.disi.unitn.it:/mnt/meditech/group3/vtp_analysis/outputs/checkpoint/ /home/group4/Challenge3/vtp_analysis/outputs/checkpoint/
+
+rsync -avP  matteo.gottardelli@baldo.disi.unitn.it:/mnt/meditech/group3/vtp_analysis/tables/ /home/group4/Challenge3/vtp_analysis/tables/

@@ -98,10 +98,3 @@ class PointNet(nn.Module):
         return x
 
 
-# for testing purpose
-if __name__ == '__main__':
-    model = PointNet(num_class=1, normal_channel=3, feat_channel=97)
-    xyz = torch.randn(2, 6, 1024)  
-    feat = torch.randn(2, 97)  
-    output = model(xyz, feat)
-    print(output.shape)

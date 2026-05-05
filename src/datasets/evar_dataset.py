@@ -175,6 +175,7 @@ class TimeEVARDataset(Dataset):
         labels_path = datapath + "/dataset.csv"
         self.labels = pd.read_csv(labels_path)[pd.read_csv(labels_path)["patient_id"].isin(split_ids)]["complication_raw"].to_numpy().reshape([-1, 1])
         self.labels = (self.labels != 'none').astype(int)
+        self.other_patologies_labels = pd.read_csv(labels_path).iloc[:, 3:14].to_numpy()
         
     def compute_norm_stats(self) -> NormStats:
         feats=self.df[self.feature_cols]
@@ -272,6 +273,7 @@ class TimeEVARDataset(Dataset):
         row=self.df.iloc[idx]
         patient_id=row["patient_id"]
         label_complication=torch.tensor(self.labels[idx], dtype=torch.float32)
+        other_patologies_label = torch.tensor(self.other_patologies_labels[idx], dtype=torch.float32)
         feat=self.df.iloc[idx][self.feature_cols].values.astype(np.float32)
         feat=np.nan_to_num(feat, nan=0.0)
         xyz, cfd, xyz_wall, cfd_wall = self._load_pointcloud(patient_id)
@@ -291,6 +293,6 @@ class TimeEVARDataset(Dataset):
                   "point_wall": xyz_wall.T.astype(np.float32)
                   }
         cfd = cfd.T.astype(np.float32)
-        labels = {"complication": label_complication, "cfd": cfd, "cfd_wall": cfd_wall}
+        labels = {"complication": label_complication, "other_patologies": other_patologies_label, "cfd": cfd, "cfd_wall": cfd_wall}
         feat_t=torch.tensor(feat, dtype=torch.float32)
         return points, labels, feat_t  # (xyzt, point_index, time) (cfd, point_index, time)

@@ -16,7 +16,7 @@ class PinnLoss(nn.Module):
         self.already_updated = False
         self.lambda_ = lambda_
         self.weight_loss_pinn = 0.3
-        self.weight_loss_pred = 0.7
+        self.weight_loss_pred = 0.6
         self.diff = 0.04 # viscosity
         self.rho = 1.06 # density
 
@@ -237,7 +237,7 @@ class PinnLoss(nn.Module):
         self.epoch += 1
         self.already_updated = False
 
-    def forward(self, points, pred, h_in,  target, h_wall, cfd, cfd_wall):
+    def forward(self, points, pred, h_in,  target, h_wall, cfd, cfd_wall, other_patologies, other_patologies_label):
         loss_data = self.Loss_data(h_in, cfd) 
         loss_eqn = self.criterion(points, h_in, cfd)
         loss_bc = self.Loss_BC(h_wall) 
@@ -246,7 +246,7 @@ class PinnLoss(nn.Module):
         if ((self.epoch % 10 == 0) and not self.already_updated):
             self.update_adaptive_constants(loss_eqn, loss_bc, loss_data)
             self.already_updated = True
-        return self.weight_loss_pinn * loss_pinn + self.weight_loss_pred * loss_pred
+        return self.weight_loss_pinn * loss_pinn + self.weight_loss_pred * loss_pred + 0.1 * nn.BCELoss()(other_patologies, other_patologies_label)
 
 class PointRNN(nn.Module):
     def __init__(self, size = 1088, radius = 0.2, nsample = 32):
@@ -292,7 +292,7 @@ class PointGRU(nn.Module):
         return h_t.permute(0, 2, 1)
 
 class GNNPinn(nn.Module):
-    def __init__(self, num_class=1,  normal_channel=3, feat_channel=97):
+    def __init__(self, num_class=1,  normal_channel=3, feat_channel=97, num_other_patologies=11):
         super(GNNPinn, self).__init__()
 
         # recursive pinn
@@ -327,6 +327,7 @@ class GNNPinn(nn.Module):
         self.bn2 = nn.BatchNorm1d(256)
         self.drop2 = nn.Dropout(0.5)
         self.fc3 = nn.Linear(256, num_class)
+        self.fc4 = nn.Linear(256, num_other_patologies)
         self.mlp = nn.Sequential(
             nn.Linear(feat_channel, 512),
             nn.LeakyReLU(0.1),
@@ -392,8 +393,9 @@ class GNNPinn(nn.Module):
         pred = self.fusion(pred)  
         pred = self.drop1(F.relu(self.bn1(self.fc1(pred))))
         pred = self.drop2(F.relu(self.bn2(self.fc2(pred))))
-        pred = self.fc3(pred)
-        pred = torch.sigmoid(pred)
-        return pred, h, pinn_out_wall
+        pred_1 = self.fc3(pred)
+        pred_1 = torch.sigmoid(pred_1)
+        other_patologies = torch.sigmoid(self.fc4(pred))
+        return pred_1, h, pinn_out_wall, other_patologies
     
 

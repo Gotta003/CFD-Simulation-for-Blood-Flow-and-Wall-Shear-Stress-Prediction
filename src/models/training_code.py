@@ -121,6 +121,10 @@ def train_one_epoch(model, train_loader, opt, selected_loss, epoch, predthreshol
         total_batch += batch_size
         opt.zero_grad()
         point_wall = None
+        other_patologies_label = None
+        other_patologies = None
+        cfd = None 
+        cfd_wall = None
         if setting != "pinn":
             point = point.to(device)
         else:
@@ -128,14 +132,16 @@ def train_one_epoch(model, train_loader, opt, selected_loss, epoch, predthreshol
             point = point["point"].to(device)
         feat = feat.to(device)
         if setting == "pinn":
-            label = label["complication"].to(device).reshape(batch_size, -1)
+            comp_label = label["complication"].to(device).reshape(batch_size, -1)
+            other_patologies_label = label["other_patologies"].to(device) 
             cfd = label["cfd"].to(device)
             cfd_wall = label["cfd_wall"].to(device)
+            label=comp_label
         else: 
             label = label.to(device).reshape(batch_size, -1)
         if setting == "pinn":
-                pred, h_t, pinn_out_wall = model(point.requires_grad_(True), feat,  point_wall)
-                loss = selected_loss(point, pred, h_t, label, pinn_out_wall, cfd, cfd_wall)
+                pred, h_t, pinn_out_wall, other_patologies = model(point.requires_grad_(True), feat,  point_wall)
+                loss = selected_loss(point, pred, h_t, label, pinn_out_wall, cfd, cfd_wall, other_patologies, other_patologies_label)
         else:
             pred = model(point, feat)
             loss = selected_loss(pred, label)
@@ -146,9 +152,9 @@ def train_one_epoch(model, train_loader, opt, selected_loss, epoch, predthreshol
         labels.append(label.detach().cpu().squeeze(0).numpy())
         preds.append(pred.detach().cpu().squeeze(0).numpy())
         pred_posts.append(pred_post.detach().cpu().squeeze(0).numpy())
-        a = np.concatenate(labels, axis=0)
-        b = np.concatenate(preds, axis=0)
-        c = np.concatenate(pred_posts, axis=0)
+    a = np.concatenate(labels, axis=0)
+    b = np.concatenate(preds, axis=0)
+    c = np.concatenate(pred_posts, axis=0)
     time_one_epoch = time.time() - since
     print('Training epoch {:0d} time: {:0f}m {:0f}s'.format(
         epoch, time_one_epoch // 60, time_one_epoch % 60))
@@ -177,15 +183,17 @@ def val_one_epoch(model, val_loader, selected_loss, predthreshold, device, setti
             point = point["point"].to(device)
         feat = feat.to(device)
         if setting == "pinn":
-            label = label["complication"].to(device).reshape(batch_size_val, -1)
+            comp_label = label["complication"].to(device).reshape(batch_size_val, -1)
             cfd = label["cfd"].to(device)
             cfd_wall = label["cfd_wall"].to(device)
+            other_patologies_label = label["other_patologies"].to(device)
+            label=comp_label
         else: 
             label = label.to(device).reshape(batch_size_val, -1)
         with torch.no_grad():
             if setting == "pinn":
-                pred, h_t, pinn_out_wall = model(point.requires_grad_(True), feat, point_wall)
-                loss = selected_loss(point, pred, h_t, label, pinn_out_wall, cfd, cfd_wall) 
+                pred, h_t, pinn_out_wall, other_patologies = model(point.requires_grad_(True), feat, point_wall)
+                loss = selected_loss(point, pred, h_t, label, pinn_out_wall, cfd, cfd_wall, other_patologies, other_patologies_label) 
             else:
                 pred = model(point, feat)
                 loss = selected_loss(pred, label)
@@ -225,6 +233,7 @@ def test(model, test_loader, predthreshold, device, setting="pointnet"):
         batch_size=feat.size(0)
         total_batch += batch_size
         point_wall = None
+        h = None
         if setting != "pinn":
             point = point.to(device)
         else:
@@ -234,11 +243,12 @@ def test(model, test_loader, predthreshold, device, setting="pointnet"):
         if setting == "pinn":
             label = label["complication"].to(device).reshape(batch_size, -1)
             cfd = label["cfd"].to(device)
+            other_patologies_label = label["other_patologies"].to(device)
         else: 
             label = label.to(device).reshape(batch_size, -1)
         with torch.no_grad():
             if setting == "pinn":
-                pred, h, _ = model(point, feat, point_wall)
+                pred, h, pinn_out_wall, other_patologies = model(point, feat, point_wall)
             else:
                 pred = model(point, feat)
         pred_post = (pred > predthreshold).float()
