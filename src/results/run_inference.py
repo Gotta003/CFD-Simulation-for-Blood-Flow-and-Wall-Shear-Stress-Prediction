@@ -101,6 +101,14 @@ def run(force: bool = False):
     pinn_ok=sum(m is not None for m in pinn_models)
     xgb_ok=sum(m is not None for m in xgb_models)
     print(f"Loaded: PointNet {pn_ok}/{N_FOLDS}, GNNPinn {pinn_ok}/{N_FOLDS}, XGBoost {xgb_ok}/{N_FOLDS}")
+    print("[5/6] Running Inference")
+    records=[]
+    all_labels=[]
+    all_preds=[]
+    for pid in test_ids:
+        print(f"    patient {pid}...", end=" ", flush=True)
+        row_df=df[df["patient_id"]==pid]
+    
 if __name__=="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument("--datapath", default=DATAPATH, help="Path to the data directory")
