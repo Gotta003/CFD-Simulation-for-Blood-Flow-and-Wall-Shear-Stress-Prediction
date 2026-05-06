@@ -8,6 +8,9 @@ import tkinter.ttk as ttk
 import numpy as np
 import pandas as pd
 from typing import Callable, Optional, Dict, Any
+from pathlib import Path
+
+BASE_DIR=Path(__file__).parent.parent.parent
 
 C_NAV        = "#1A2A4A"
 C_NAV_LIGHT  = "#2C3E6B"
@@ -30,15 +33,16 @@ FONT_H3   = ("Helvetica", 10, "bold")
 FONT_BODY = ("Helvetica", 10)
 FONT_SM   = ("Helvetica", 8)
 
-PREDS_CSV="outputs/results/predictions.csv"
-TEST_IDS="outputs/splits/test_ids.npy"
+PREDS_NPY="predizioni_multilabel_svm.npy"
+LABELS_NPY="labels_multilabel_svm.npy"
+TEST_IDS_NPY="outputs/splits/test_ids.npy"
 
 def _risk_color(conf: float) -> tuple:
     if conf>=0.70:
-        return C_RED, C_RED_BG
+        return C_RED, C_RED_BG, "HIGH"
     elif conf>=0.50:
-        return C_ORANGE, C_ORANGE_BG
-    return C_GREEN, C_GREEN_BG
+        return C_ORANGE, C_ORANGE_BG, "MEDIUM"
+    return C_GREEN, C_GREEN_BG, "LOW"
 
 
 class PatientRow(tk.Frame):
@@ -49,16 +53,43 @@ class PatientRow(tk.Frame):
         self.on_click=on_click
         fg, bg, label= _risk_color(conf)
         #PAtient
-        id_lbl=tk.Label(self, text=f"   {pid}", font=FONT_BODY, bg=bg, fg=C_TEXT, anchor="w")
+        id_lbl=tk.Label(self, text=f"   {pid}", font=FONT_BODY, bg=bg, fg=C_TEXT, anchor="w", cursor="hand2")
         id_lbl.pack(side="left", fill="x", expand=True, ipady=6)
-        #Risk
         pill=tk.Frame(self, bg=bg, padx=8, pady=3, highlightbackground=fg, highlightthickness=1)
+        pill.pack(side="right", padx=8, pady=6)
+        tk.Label(pill, text=f"{label}", font=FONT_SM, bg=bg, fg=fg).pack()
+        tk.Frame(self, bg=C_BORDER, height=1).pack(fill="x", side="bottom")
+        for w in (self, id_lbl, pill)+tuple(pill.winfo_children()):
+            w.bind("<Enter>", self._on_enter)
+            w.bind("<Leave>", self._on_leave)
+            w.bind("<Button-1>", self._on_click)
+
+    def _on_enter(self, _e=None):
+        self.configure(bg=C_HOVER)
+        for w in self.winfo_children():
+            try:
+                w.configure(bg=C_HOVER)
+            except Exception:
+                pass
+    
+    def _on_leave(self, _e=None):
+        self.configure(bg=C_WHITE)
+        for w in self.winfo_children():
+            try:
+                w.configure(bg=C_WHITE)
+            except Exception:
+                pass
+
+    def _on_click(self, _e=None):
+        self.on_click(self.pid)
 
 class PatientListPanel(tk.Frame):
-    def __init__(self, parent, on_select: Callable[[str, Dict[str, Any]], None], preds_csv: str=PREDS_CSV, **kw):
+    def __init__(self, parent, on_select: Callable[[str, Dict[str, Any]], None], preds_npy: str=PREDS_NPY, labels_npy: str=LABELS_NPY, test_ids_npy: str=TEST_IDS_NPY, **kw):
         super().__init__(parent, bg=C_BG, **kw)
         self.on_select=on_select
-        self.preds_csv=preds_csv
+        self.preds_npy=preds_npy
+        self.labels_npy=labels_npy
+        self.test_ids_npy=test_ids_npy
         self._records: Dict[str, Dict]={}
         self._rows: Dict[str, PatientRow]={}
         self._selected: Optional[str]=None
@@ -75,18 +106,46 @@ class PatientListPanel(tk.Frame):
         tk.Label(self._list_frame, text=msg, font=FONT_BODY, bg=C_WHITE, fg=C_MUTED, pady=30, wraplength=220, justify="center").pack()
 
     def _load(self):
-        if not os.path.exists(self.preds_csv):
-            self._show_status("No predictions found\nRun inference to generate")
+        missing=[p for p in (self.preds_npy, self.labels_npy, self.test_ids_npy) if not os.path.isfile(p)]
+        if missing:
+            self._show_status("SVM preds not found.\nRun Inference to generate them.\n\nMissing:\n"+"\n".join(os.path.basename(p) for p in missing))
             return
         try:
-            df=pd.read_csv(self.preds_csv)
-            df["patient_id"]=df["patient_id"].astype(str).str.strip()
-            self._records={
-                row["patient_id"]: row.to_dict() for _, row in df.iterrows()
-            }
+            preds=np.load(self.preds_npy, allow_pickle=True)
+            labels=np.load(self.labels_npy, allow_pickle=True)
+            test_ids=np.load(self.test_ids_npy, allow_pickle=True).astype(str)
+            if len(test_ids)!=len(preds):
+                self._show_status(f"Shape missmatch: {len(test_ids)} patient IDs but {len(preds)} prediction rows.")
+                return
+            self._records={}
+            for i, pid in enumerate(test_ids):
+                pid=str(pid).strip()
+                self._records[pid]={
+                    "svm_probs": preds[i].astype(np.float32),
+                    "gt_labels": labels[i].astype(np.float32),
+                }
             self._render_rows(list(self._records.keys()))
         except Exception as e:
-            self._show_status(f"Error loading preds:\n{e}")
+            self._show_status(f"Error loading predictions:\n{e}")
+
+    def _render_rows(self, pids):
+        for w in self._list_frame.winfo_children():
+            w.destroy()
+        self._rows.clear()
+        if not pids:
+            tk.Label(self._list_frame, text="No patients match filter.", font=FONT_BODY, bg=C_WHITE, fg=C_MUTED, pady=20).pack()
+            return
+        def sort_key(pid):
+            conf=self._get_prob(self._records[pid])
+            return (-conf, pid)
+        for pid in sorted(pids, key=sort_key):
+            rec=self._records[pid]
+            conf=self._get_prob(rec)
+            row=PatientRow(self._list_frame, pid, conf, on_click=lambda p=pid: self._patient_clicked(p))
+            row.pack(fill="x")
+            self._rows[pid]=row
+        n=len(pids)
+        self._count_lbl.configure(text=f"{n} patient{'s' if n!=1 else ''}")
 
     def _build_list(self):
         c=tk.Frame(self, bg=C_BG)
@@ -161,7 +220,7 @@ class PatientListPanel(tk.Frame):
             return
         
         def sort_key(pid):
-            conf=self._records[pid].get("conf", 0.5)
+            conf=self._get_prob(self._records[pid])
             return (-conf, pid)
         
         for pid in sorted(pids, key=sort_key):
@@ -172,6 +231,16 @@ class PatientListPanel(tk.Frame):
             self._rows[pid]=row
         n=len(pids)
         self._count_lbl.configure(text=f"{n} patient {'s' if n!=1 else ''}")
+
+    def _get_prob(self, rec:Dict) -> float:
+        probs=rec.get("svm_probs")
+        if probs is not None and len(probs)>0:
+            return float(probs[0])
+        return 0.0
+
+    def _patient_clicked(self, pid:str):
+        rec=self._records.get(pid, {})
+        self.on_select(pid, rec)
 
     def _filter(self):
         q=self._search_var.get().strip().lower()
@@ -209,6 +278,10 @@ class PatientListPanel(tk.Frame):
             btn=tk.Label(bar, text=val, font=FONT_SM, bg=bg, fg=fg, padx=7, pady=2, cursor="hand2", highlightbackground=fg, highlightthickness=1)
             btn.pack(side="left", padx=2)
             btn.bind("<Button-1>", lambda e, v=val: self._set_filter(v))
+
+    def _set_filter(self, val):
+        self._filter_var.set(val)
+        self._filter()
 
     def _build_header(self):
         hdr=tk.Frame(self, bg=C_NAV, padx=14, pady=10)

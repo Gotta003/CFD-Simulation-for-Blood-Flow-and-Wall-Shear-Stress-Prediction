@@ -64,11 +64,6 @@ class PointNet(nn.Module):
         norm3 = norm3.repeat(1, 3, 1)
         xyz = xyz[:, :3, :]
 
-        print(xyz.shape)
-        print(norm1.shape)
-        print(norm2.shape)
-        print(norm3.shape)
-
         l1_xyz1, l1_points1 = self.sa1(xyz, norm1)
         l2_xyz1, l2_points1 = self.sa2(l1_xyz1, l1_points1)
         l3_xyz1, l3_points1 = self.sa3(l2_xyz1, l2_points1)
@@ -92,9 +87,9 @@ class PointNet(nn.Module):
 
 
         x = self.drop1(F.relu(self.bn1(self.fc1(x))))
-        x = self.drop2(F.relu(self.bn2(self.fc2(x))))
-        x = self.fc3(x)
+        pred = self.drop2(F.relu(self.bn2(self.fc2(x))))
+        x = self.fc3(pred)
         x = torch.sigmoid(x)
-        return x
+        return x, pred
 
 

@@ -6,3 +6,6 @@ __pycache__/
 
 # Files
 members.json
+labels_multilabel_svm*
+predizioni_multilabel_svm*
+metrics_multilabel_svm*
