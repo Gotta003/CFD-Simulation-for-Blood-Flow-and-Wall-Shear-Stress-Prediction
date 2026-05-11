@@ -1,5 +1,5 @@
 randomseed: 2
-batch_size: 4
+batch_size: 2
 batch_size_val: 1
 num_epoch: 50
 learning_rate: 0.0001

@@ -8,7 +8,7 @@ from torch.utils.data import Dataset, DataLoader
 
 POINT_CHANNELS=["pressure", "wss", "velocity"]
 
-SUBSAMPLED_INDEXES = range(0, 480, 20) # change the last value to include more timesteps
+SUBSAMPLED_STEP = 5 # change the last value to include more timesteps
 
 BASE_DIR=Path(__file__).resolve().parent.parent.parent
 
@@ -125,6 +125,23 @@ class EVARDataset(Dataset):
         xyz=2*((xyz-self.norm_stats.point_min)/(self.norm_stats.point_max-self.norm_stats.point_min+1e-8))-1
         cfd=2*((cfd-self.norm_stats.cfd_min)/(self.norm_stats.cfd_max-self.norm_stats.cfd_min+1e-8))-1
         return feat, xyz, cfd
+
+    def denormalize(self, xyz_plus_points):
+        # Scale back to [0, 1]
+        data_denorm = (xyz_plus_points + 1) / 2  
+        
+        # Aggiungiamo [:, None] per trasformare (3,) in (3, 1)
+        p_max = self.norm_stats.point_max[:, None]
+        p_min = self.norm_stats.point_min[:, None]
+        
+        xyz_denorm = data_denorm[:3, :] * (p_max - p_min + 1e-8) + p_min
+        
+        # Se cfd_denorm ha lo stesso problema, applica la stessa logica
+        c_max = self.norm_stats.cfd_max[:, None]
+        c_min = self.norm_stats.cfd_min[:, None]
+        cfd_denorm = data_denorm[3:, :] * (c_max - c_min + 1e-8) + c_min
+        
+        return np.concatenate([xyz_denorm, cfd_denorm], axis=0).T.astype(np.float32)
     
     def __len__(self) -> int:
         return len(self.df)
@@ -154,7 +171,7 @@ class TimeEVARDataset(Dataset):
                  pointcloud_dir: str = str(BASE_DIR) + "/outputs/pointclouds", 
                  pointcloud_wall_dir: str = str(BASE_DIR) + "/outputs/pointclouds_vtp", 
                  split_ids: np.ndarray | Sequence[str] = np.load(str(BASE_DIR) + "/outputs/splits/fold_0_train_ids.npy"), 
-                 n_points: int=8192, augment: bool=False, norm_stats: NormStats | None=None, 
+                 n_points: int=1024, augment: bool=False, norm_stats: NormStats | None=None, 
                  fallback_zeros: bool=True, seed: int=0, normalize = True):
         self.pointcloud_dir=Path(pointcloud_dir)
         self.pointcloud_wall_dir=Path(pointcloud_wall_dir)
@@ -189,46 +206,47 @@ class TimeEVARDataset(Dataset):
             if npz_path.exists():
                 data=np.load(npz_path)
                 xyz=data["xyz"].astype(np.float32)
-            if (xyz.shape[0]==480):     
-                xyz_subsampled=xyz[SUBSAMPLED_INDEXES, :, :].astype(np.float32)
-                t, n, _ = xyz_subsampled.shape
-                time_steps = np.arange(t).reshape(t, 1, 1)
-                time_column = np.broadcast_to(time_steps, (t, n, 1))
-                xyz_subsampled = np.concatenate([time_column, xyz_subsampled], axis=2) 
-                p_subsampled=data["p"][SUBSAMPLED_INDEXES, :].astype(np.float32)
-                vx_subsampled=data["vx"][ SUBSAMPLED_INDEXES, :].astype(np.float32)
-                vy_subsampled=data["vy"][SUBSAMPLED_INDEXES, :].astype(np.float32)
-                vz_subsampled=data["vz"][SUBSAMPLED_INDEXES, :].astype(np.float32)
-                wx_subsampled=data["wx"][SUBSAMPLED_INDEXES, :].astype(np.float32)
-                wy_subsampled=data["wy"][SUBSAMPLED_INDEXES, :].astype(np.float32)
-                wz_subsampled=data["wz"][SUBSAMPLED_INDEXES, :].astype(np.float32)
-                wss_subsampled = np.sqrt(wx_subsampled**2 + wy_subsampled**2 + wz_subsampled**2)
-                cfd_subsampled=np.stack([p_subsampled, vx_subsampled, vy_subsampled, vz_subsampled, wss_subsampled], axis=1)
-                for i in range(xyz_subsampled.shape[0]):
-                    xyz=xyz_subsampled[i].squeeze().astype(np.float32) 
-                    cfd = cfd_subsampled[i].squeeze().astype(np.float32)   
-                    print(xyz.shape, cfd.shape)       
-                    points.append(xyz)
-                    cfd_samples.append(np.transpose(cfd, (1, 0)).astype(np.float32))
-                npz_path=self.pointcloud_wall_dir/f"{pid}.npz"
-                if npz_path.exists():
-                    data_wall=np.load(npz_path)
-                    xyz_wall=data_wall["xyz"].astype(np.float32)
-                    xyz_wall= np.column_stack((xyz_wall, xyz_subsampled[xyz_subsampled.shape[0]-1, :xyz_wall.shape[0], 3])).astype(np.float32)            
-                    p_wall=data_wall["p"].astype(np.float32)
-                    vx_wall=data_wall["vx"].astype(np.float32)
-                    vy_wall=data_wall["vy"].astype(np.float32)
-                    vz_wall=data_wall["vz"].astype(np.float32)
-                    wss_wall=data_wall["wss"].astype(np.float32)
-                    cfd_wall=np.stack([p_wall, vx_wall, vy_wall, vz_wall, wss_wall], axis=1)
-                    xyz_wall = np.tile(xyz_wall, (5,1))
-                    points.append(xyz_wall)
-                    cfd_wall = np.tile(cfd_wall, (5,1))
-                    print(xyz_wall.shape, cfd_wall.shape)
-                    cfd_samples.append(cfd_wall.astype(np.float32))
+            subsamp = self.get_subsampled_indexes(xyz.shape[0])
+            xyz_subsampled=xyz[subsamp, :, :].astype(np.float32)
+            t, n, _ = xyz_subsampled.shape
+            time_steps = np.arange(t).reshape(t, 1, 1)
+            time_column = np.broadcast_to(time_steps, (t, n, 1))
+            xyz_subsampled = np.concatenate([time_column, xyz_subsampled], axis=2) 
+            p_subsampled=data["p"][subsamp, :].astype(np.float32)
+            vx_subsampled=data["vx"][ subsamp, :].astype(np.float32)
+            vy_subsampled=data["vy"][subsamp, :].astype(np.float32)
+            vz_subsampled=data["vz"][subsamp, :].astype(np.float32)
+            wx_subsampled=data["wx"][subsamp, :].astype(np.float32)
+            wy_subsampled=data["wy"][subsamp, :].astype(np.float32)
+            wz_subsampled=data["wz"][subsamp, :].astype(np.float32)
+            wss_subsampled = np.sqrt(wx_subsampled**2 + wy_subsampled**2 + wz_subsampled**2)
+            cfd_subsampled=np.stack([p_subsampled, vx_subsampled, vy_subsampled, vz_subsampled, wss_subsampled], axis=1)
+            for i in range(xyz_subsampled.shape[0]):
+                xyz=xyz_subsampled[i].squeeze().astype(np.float32) 
+                cfd = cfd_subsampled[i].squeeze().astype(np.float32)   
+                points.append(xyz)
+                cfd_samples.append(np.transpose(cfd, (1, 0)).astype(np.float32))
+            npz_path=self.pointcloud_wall_dir/f"{pid}.npz"
+            if npz_path.exists():
+                data_wall=np.load(npz_path)
+                xyz_wall=data_wall["xyz"].astype(np.float32)
+                xyz_wall= np.column_stack((xyz_wall, xyz_subsampled[xyz_subsampled.shape[0]-1, :xyz_wall.shape[0], 3])).astype(np.float32)            
+                p_wall=data_wall["p"].astype(np.float32)
+                vx_wall=data_wall["vx"].astype(np.float32)
+                vy_wall=data_wall["vy"].astype(np.float32)
+                vz_wall=data_wall["vz"].astype(np.float32)
+                wss_wall=data_wall["wss"].astype(np.float32)
+                cfd_wall=np.stack([p_wall, vx_wall, vy_wall, vz_wall, wss_wall], axis=1)
+                xyz_wall = np.tile(xyz_wall, (5,1))
+                points.append(xyz_wall)
+                cfd_wall = np.tile(cfd_wall, (5,1))
+                cfd_samples.append(cfd_wall.astype(np.float32))
         stats=NormStats()
         stats.fit(points, feats, cfd_samples)
         return stats
+    
+    def get_subsampled_indexes(self, maximum_index: int):
+        return np.linspace(0, maximum_index - 1, SUBSAMPLED_STEP).astype(int)
     
     def _load_pointcloud(self, patient_id: str):
         npz_path=self.pointcloud_dir/f"{patient_id}.npz"
@@ -236,18 +254,19 @@ class TimeEVARDataset(Dataset):
             return np.zeros((self.n_points, 3), dtype=np.float32), np.zeros((self.n_points, self.n_cfd_channels), dtype=np.float32)
         data=np.load(npz_path)
         xyz=data["xyz"].astype(np.float32)
-        xyz_subsampled=xyz[SUBSAMPLED_INDEXES, :, :].astype(np.float32)
+        subsamp = self.get_subsampled_indexes(xyz.shape[0])
+        xyz_subsampled=xyz[subsamp, :, :].astype(np.float32)
         t, n, _ = xyz_subsampled.shape
         time_steps = np.arange(t).reshape(t, 1, 1)
         time_column = np.broadcast_to(time_steps, (t, n, 1))
         xyz_subsampled = np.concatenate([time_column, xyz_subsampled], axis=2) 
-        p_subsampled=data["p"][SUBSAMPLED_INDEXES, :].astype(np.float32)
-        vx_subsampled=data["vx"][ SUBSAMPLED_INDEXES, :].astype(np.float32)
-        vy_subsampled=data["vy"][SUBSAMPLED_INDEXES, :].astype(np.float32)
-        vz_subsampled=data["vz"][SUBSAMPLED_INDEXES, :].astype(np.float32)
-        wx_subsampled=data["wx"][SUBSAMPLED_INDEXES, :].astype(np.float32)
-        wy_subsampled=data["wy"][SUBSAMPLED_INDEXES, :].astype(np.float32)
-        wz_subsampled=data["wz"][SUBSAMPLED_INDEXES, :].astype(np.float32)
+        p_subsampled=data["p"][subsamp, :].astype(np.float32)
+        vx_subsampled=data["vx"][ subsamp, :].astype(np.float32)
+        vy_subsampled=data["vy"][subsamp, :].astype(np.float32)
+        vz_subsampled=data["vz"][subsamp, :].astype(np.float32)
+        wx_subsampled=data["wx"][subsamp, :].astype(np.float32)
+        wy_subsampled=data["wy"][subsamp, :].astype(np.float32)
+        wz_subsampled=data["wz"][subsamp, :].astype(np.float32)
         wss_subsampled = np.sqrt(wx_subsampled**2 + wy_subsampled**2 + wz_subsampled**2)
         cfd_subsampled=np.stack([p_subsampled, vx_subsampled, vy_subsampled, vz_subsampled, wss_subsampled], axis=1)
         npz_path_wall=self.pointcloud_wall_dir/f"{patient_id}.npz"
@@ -277,7 +296,6 @@ class TimeEVARDataset(Dataset):
         patient_id=row["patient_id"]
         label_complication=torch.tensor(self.labels[idx], dtype=torch.float32)
         other_patologies_label = torch.tensor(self.other_patologies_labels[idx], dtype=torch.float32)
-        
         feat=self.df.iloc[idx][self.feature_cols].values.astype(np.float32)
         feat=np.nan_to_num(feat, nan=0.0)
         xyz, cfd, xyz_wall, cfd_wall = self._load_pointcloud(patient_id)

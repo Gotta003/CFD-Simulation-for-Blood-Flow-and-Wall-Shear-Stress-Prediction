@@ -1,0 +1,70 @@
+{
+  "per_patient": {
+    "pz036": {
+      "pressure_mse": 0.944844,
+      "wss_mse": 0.806918,
+      "velocity_x_mse": 0.737536,
+      "velocity_y_mse": 0.765552,
+      "velocity_z_mse": 0.799437,
+      "velocity_magnitude_mse": 6.401193
+    },
+    "pz053": {
+      "pressure_mse": 0.950594,
+      "wss_mse": 0.794457,
+      "velocity_x_mse": 0.773806,
+      "velocity_y_mse": 0.815508,
+      "velocity_z_mse": 0.838619,
+      "velocity_magnitude_mse": 7.03234
+    },
+    "pz029": {
+      "pressure_mse": 0.949656,
+      "wss_mse": 0.816926,
+      "velocity_x_mse": 0.789617,
+      "velocity_y_mse": 0.777045,
+      "velocity_z_mse": 0.81905,
+      "velocity_magnitude_mse": 6.738821
+    },
+    "pz010": {
+      "pressure_mse": 0.947128,
+      "wss_mse": 0.831206,
+      "velocity_x_mse": 0.764619,
+      "velocity_y_mse": 0.699883,
+      "velocity_z_mse": 0.77933,
+      "velocity_magnitude_mse": 6.158
+    },
+    "pz098": {
+      "pressure_mse": 0.947166,
+      "wss_mse": 0.814493,
+      "velocity_x_mse": 0.798853,
+      "velocity_y_mse": 0.724176,
+      "velocity_z_mse": 0.777297,
+      "velocity_magnitude_mse": 6.336454
+    }
+  },
+  "aggregate": {
+    "pressure_mse_mean": 0.947878,
+    "pressure_mse_std": 0.00204,
+    "pressure_mse_min": 0.944844,
+    "pressure_mse_max": 0.950594,
+    "wss_mse_mean": 0.8128,
+    "wss_mse_std": 0.012081,
+    "wss_mse_min": 0.794457,
+    "wss_mse_max": 0.831206,
+    "velocity_x_mse_mean": 0.772886,
+    "velocity_x_mse_std": 0.021321,
+    "velocity_x_mse_min": 0.737536,
+    "velocity_x_mse_max": 0.798853,
+    "velocity_y_mse_mean": 0.756433,
+    "velocity_y_mse_std": 0.040586,
+    "velocity_y_mse_min": 0.699883,
+    "velocity_y_mse_max": 0.815508,
+    "velocity_z_mse_mean": 0.802747,
+    "velocity_z_mse_std": 0.023493,
+    "velocity_z_mse_min": 0.777297,
+    "velocity_z_mse_max": 0.838619,
+    "velocity_magnitude_mse_mean": 6.533362,
+    "velocity_magnitude_mse_std": 0.312516,
+    "velocity_magnitude_mse_min": 6.158,
+    "velocity_magnitude_mse_max": 7.03234
+  }
+}

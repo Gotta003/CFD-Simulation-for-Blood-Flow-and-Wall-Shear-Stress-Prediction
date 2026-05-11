@@ -1,5 +1,4 @@
-# from src.models.utils import *
-from src.models  import utils
+from src.models.utils import *
 import torch.nn as nn
 import torch.nn.functional as F
 import torch
@@ -7,7 +6,7 @@ import torch
 
 
 class PinnLoss(nn.Module):
-    def __init__(self, net, lambda_ = 0.9):
+    def __init__(self, net, lambda_ = 0.9, adaptive = False):
         super(PinnLoss, self).__init__()
         self.adaptive_constant_bc=0
         self.adaptive_constant_data=0
@@ -19,6 +18,7 @@ class PinnLoss(nn.Module):
         self.weight_loss_pred = 0.7
         self.diff = 0.04 # viscosity
         self.rho = 1.06 # density
+        self.adaptive = adaptive
 
     def criterion(self, points,  h_in, cfd):
         # MSE LOSS
@@ -291,14 +291,39 @@ class PointGRU(nn.Module):
  
         return h_t.permute(0, 2, 1)
 
+class PointNetEncoder(nn.Module):
+    def __init__(self, in_channel=4, out_channel=64):
+        super(PointNetEncoder, self).__init__()
+        
+        self.block1 = nn.Sequential(
+            nn.Conv1d(in_channel, 128, kernel_size=1),
+            nn.BatchNorm1d(128),
+            nn.ReLU()
+        )
+        
+        self.block2 = nn.Sequential(
+            nn.Conv1d(128, 512, kernel_size=1),
+            nn.BatchNorm1d(512),
+            nn.ReLU()
+        )
+        
+        self.linear = nn.Linear(512, out_channel)
+
+    def forward(self, x):
+        # x: (B, 4, 4000)
+        x = self.block1(x) # (B, 128, 4000)
+        x = self.block2(x) # (B, 512, 4000)        
+        x = self.linear(x.permute(0, 2, 1)) # (B, 64)
+        return x.permute(0, 2, 1)
+
+
 class GNNPinn(nn.Module):
-    def __init__(self, num_class=1,  normal_channel=3, feat_channel=97, num_other_patologies=11):
+    def __init__(self, num_class=1,  normal_channel=3, in_channel=4, 
+                 feat_channel=97, num_other_patologies=11, num_points=4000):
         super(GNNPinn, self).__init__()
 
         # recursive pinn
-        self.encoder = PointNetEncoder(global_feat=False, feature_transform=True, channel=4)
-        self.first_conv = nn.Conv1d(1088, 512, kernel_size=1)
-        self.second_conv = nn.Conv1d(512, 64, kernel_size=1)
+        self.encoder = PointNetEncoder(in_channel = 4, out_channel=64)
         self.point_gru = PointGRU(size=64, radius=0.2, nsample=32)
         self.out_encoder_conv = nn.Conv1d(64, 5, kernel_size=1)
         self.classifier_conv = nn.Conv1d(5, 3, kernel_size=1)
@@ -342,10 +367,7 @@ class GNNPinn(nn.Module):
         h_list = []
         pinn_out_list = []
         for i in range(xyz.shape[3]):
-            x, trans, trans_feat = self.encoder(xyz[:, :, :, i])
-            x = self.first_conv(x)
-            x = F.relu(x)
-            x = self.second_conv(x)
+            x= self.encoder(xyz[:, :, :, i])
             coord = xyz[:, :3, :, i] 
             h_t = self.point_gru(coord, x, h_list[-1] if h_list else None)
             pinn_out = self.out_encoder_conv(h_t)
@@ -354,10 +376,7 @@ class GNNPinn(nn.Module):
         h = torch.stack(pinn_out_list, dim=1).permute(0, 2, 3, 1)
         # compute for the wall
         x_wall = torch.cat((xyz_wall, xyz[:, -1, :, -1].unsqueeze(1)), dim=1)
-        x_wall, trans, trans_feat = self.encoder(x_wall)
-        x_wall = self.first_conv(x_wall)
-        x_wall = F.relu(x_wall)
-        x_wall = self.second_conv(x_wall)
+        x_wall = self.encoder(x_wall)
         h_wall = self.point_gru(xyz_wall, x_wall, h_list[-1])
         pinn_out_wall = self.out_encoder_conv(h_wall)
         last_pred = h[:, :, :, -1]
@@ -396,5 +415,4 @@ class GNNPinn(nn.Module):
         pred_1 = self.fc3(pred)
         pred_1 = torch.sigmoid(pred_1)
         return pred_1, h, pinn_out_wall, pred
-    
 

@@ -43,7 +43,6 @@ def get_loss(setting = "pointnet", model = None):
 # training
 def train(model, opt, train_loader, val_loader, loss, fold, board, lr_scheduler, trainF, path, 
           num_epoch, predthreshold, device, setting = "pointnet"):
-    print("training fold {}".format(fold))
     best_acc = 0.0
     best_auc = 0.0
     acc_bestauc = 0.0
@@ -54,6 +53,7 @@ def train(model, opt, train_loader, val_loader, loss, fold, board, lr_scheduler,
     # ROC
     fpr_bestauc, tpr_bestauc, thresholds_bestauc = None, None, None
     for epoch in range(num_epoch):
+        print("fold {}, epoch {}/{}".format(fold, epoch+1, num_epoch))
         train_loss, train_acc, train_auc = train_one_epoch(model, train_loader, opt, loss, 
                                                            epoch, predthreshold, device, setting = setting)
         board.add_scalar('train_loss', train_loss, epoch)
@@ -121,7 +121,6 @@ def train_one_epoch(model, train_loader, opt, selected_loss, epoch, predthreshol
         total_batch += batch_size
         opt.zero_grad()
         point_wall = None
- 
         cfd = None 
         cfd_wall = None
         if setting != "pinn":
@@ -169,6 +168,7 @@ def val_one_epoch(model, val_loader, selected_loss, predthreshold, device, setti
     preds = []
     labels = []
     pred_posts = []
+    print("inizio validation")
     for point, label, feat in tqdm(val_loader):
         #batch_size_val = len(label)
         batch_size_val=feat.size(0)
@@ -190,7 +190,7 @@ def val_one_epoch(model, val_loader, selected_loss, predthreshold, device, setti
         with torch.no_grad():
             if setting == "pinn":
                 pred, h_t, pinn_out_wall, _ = model(point.requires_grad_(True), feat, point_wall)
-                loss = selected_loss(point, pred, h_t, label, pinn_out_wall, cfd, cfd_wall) 
+                loss = torch.nn.BCELoss()(pred, label) 
             else:
                 pred, _ = model(point, feat)
                 loss = selected_loss(pred, label)
@@ -238,8 +238,9 @@ def test(model, test_loader, predthreshold, device, setting="pointnet"):
             point = point["point"].to(device)
         feat = feat.to(device)
         if setting == "pinn":
-            label = label["complication"].to(device).reshape(batch_size, -1)
+            
             cfd = label["cfd"].to(device)
+            label = label["complication"].to(device).reshape(batch_size, -1)
         else: 
             label = label.to(device).reshape(batch_size, -1)
         with torch.no_grad():
@@ -251,29 +252,31 @@ def test(model, test_loader, predthreshold, device, setting="pointnet"):
         labels.append(label.detach().cpu().squeeze(0).numpy())
         preds.append(pred.detach().cpu().squeeze(0).numpy())
         pred_posts.append(pred_post.detach().cpu().squeeze(0).numpy())
-        pressures.append(h[:, 0, :, -1].detach().cpu().squeeze(0).numpy())
-        stresses.append(h[:, 4, :, -1].detach().cpu().squeeze(0).numpy())
-        velocities_x.append(h[:, 1, :, -1].detach().cpu().squeeze(0).numpy())
-        velocities_y.append(h[:, 2, :, -1].detach().cpu().squeeze(0).numpy())
-        velocities_z.append(h[:, 3, :, -1].detach().cpu().squeeze(0).numpy())
-        label_pressures.append(cfd[:, 0, :, -1].detach().cpu().squeeze(0).numpy())
-        label_stresses.append(cfd[:, 4, :, -1].detach().cpu().squeeze(0).numpy())
-        label_velocities_x.append(cfd[:, 1, :, -1].detach().cpu().squeeze(0).numpy())
-        label_velocities_y.append(cfd[:, 2, :, -1].detach().cpu().squeeze(0).numpy())
-        label_velocities_z.append(cfd[:, 3, :, -1].detach().cpu().squeeze(0).numpy())
+        if setting == "pinn":
+            pressures.append(h[:, 0, :, -1].detach().cpu().numpy().flatten())
+            stresses.append(h[:, 4, :, -1].detach().cpu().numpy().flatten())
+            velocities_x.append(h[:, 1, :, -1].detach().cpu().numpy().flatten())
+            velocities_y.append(h[:, 2, :, -1].detach().cpu().numpy().flatten())
+            velocities_z.append(h[:, 3, :, -1].detach().cpu().numpy().flatten())
+            label_pressures.append(cfd[:, 0, :, -1].detach().cpu().numpy().flatten())
+            label_stresses.append(cfd[:, 4, :, -1].detach().cpu().numpy().flatten())
+            label_velocities_x.append(cfd[:, 1, :, -1].detach().cpu().numpy().flatten())
+            label_velocities_y.append(cfd[:, 2, :, -1].detach().cpu().numpy().flatten())
+            label_velocities_z.append(cfd[:, 3, :, -1].detach().cpu().numpy().flatten())
     a = np.concatenate(labels, axis=0)
     b = np.concatenate(preds, axis=0)
     c = np.concatenate(pred_posts, axis=0)
-    velocities_x = np.concatenate(velocities_x, axis=0)
-    label_velocities_x = np.concatenate(label_velocities_x, axis=0)
-    velocities_y = np.concatenate(velocities_y, axis=0)
-    label_velocities_y = np.concatenate(label_velocities_y, axis=0)
-    velocities_z = np.concatenate(velocities_z, axis=0)
-    label_velocities_z = np.concatenate(label_velocities_z, axis=0)
-    stresses = np.concatenate(stresses, axis=0)
-    label_stresses = np.concatenate(label_stresses, axis=0)
-    pressures = np.concatenate(pressures, axis=0)
-    label_pressures = np.concatenate(label_pressures, axis=0)
+    if setting == "pinn":
+        velocities_x = np.concatenate(velocities_x)
+        label_velocities_x = np.concatenate(label_velocities_x)
+        velocities_y = np.concatenate(velocities_y)
+        label_velocities_y = np.concatenate(label_velocities_y)
+        velocities_z = np.concatenate(velocities_z)
+        label_velocities_z = np.concatenate(label_velocities_z)
+        stresses = np.concatenate(stresses)
+        label_stresses = np.concatenate(label_stresses)
+        pressures = np.concatenate(pressures)
+        label_pressures = np.concatenate(label_pressures)
     stop = time.time()
     metric = {
         'acc_test': accuracy_score(a, c),
@@ -315,16 +318,26 @@ def train_nn_model(setting = "pointnet", boards = None, trainFs = None,
     }
     # ====== training ======
     metrics = []
-    for i in range(5):
+    for i in range(5): 
         # trainset & valset
-        trainset = evar_dataset.EVARDataset(datapath = datapath + "/dataset", features_cols_txt = features_cols_txt_path, 
+        print("entro nel fold {}".format(i))
+        trainset = None
+        if setting != "pinn":
+            trainset = evar_dataset.EVARDataset(datapath = datapath + "/dataset", features_cols_txt = features_cols_txt_path, 
                                             pointcloud_dir = pointcloud_dir_path, 
-                                            split_ids = np.load(split_ids["train"][i])) if setting != "pinn" else evar_dataset.TimeEVARDataset(datapath = datapath + "/dataset", features_cols_txt = features_cols_txt_path, 
+                                           split_ids = np.load(split_ids["train"][i])) 
+        else:
+            trainset =  evar_dataset.TimeEVARDataset(datapath = datapath + "/dataset", features_cols_txt = features_cols_txt_path, 
                                             pointcloud_dir = pointcloud_dir_path, 
                                             split_ids = np.load(split_ids["train"][i]))
-        valset = evar_dataset.EVARDataset(datapath = datapath + "/dataset", features_cols_txt = features_cols_txt_path, 
+        
+        valset = None
+        if setting != "pinn" :
+            valset = evar_dataset.EVARDataset(datapath = datapath + "/dataset", features_cols_txt = features_cols_txt_path, 
                                           pointcloud_dir = pointcloud_dir_path, 
-                                          split_ids = np.load(split_ids["val"][i])) if setting != "pinn" else evar_dataset.TimeEVARDataset(datapath = datapath + "/dataset", features_cols_txt = features_cols_txt_path,
+                                          split_ids = np.load(split_ids["val"][i]))
+        else:
+            valset =    evar_dataset.TimeEVARDataset(datapath = datapath + "/dataset", features_cols_txt = features_cols_txt_path,
                                           pointcloud_dir = pointcloud_dir_path, 
                                           split_ids = np.load(split_ids["val"][i]))
         train_loader = torch.utils.data.DataLoader(
@@ -345,6 +358,7 @@ def train_nn_model(setting = "pointnet", boards = None, trainFs = None,
                              boards[i], lr_scheduler, trainFs[i], output_path, num_epoch, predthreshold, device, setting = setting))
         print('#########################################################################################')
     # ====== testing ======
+    print("inizio il testing")
     max_auc = max([metric['auc_bestauc'] for metric in metrics])
     best_fold = [metric['auc_bestauc'] for metric in metrics ].index(max_auc)
     print(f"Best model is from fold {best_fold} with AUC: {max_auc}")
@@ -352,7 +366,11 @@ def train_nn_model(setting = "pointnet", boards = None, trainFs = None,
     checkpoint_best = os.path.join(output_path, 'exp_fold{}'.format(best_fold), 'best_auc.pth')
     checkpoint_best = torch.load(checkpoint_best)
     model_best.load_state_dict(checkpoint_best)
-    testset = evar_dataset.EVARDataset(datapath = datapath + "/dataset", features_cols_txt = features_cols_txt_path, pointcloud_dir = pointcloud_dir_path, split_ids = np.load(split_ids["test"])) if setting != "pinn" else evar_dataset.TimeEVARDataset(datapath = datapath + "/dataset", features_cols_txt = features_cols_txt_path, pointcloud_dir = pointcloud_dir_path, split_ids = np.load(split_ids["test"]))
+    testset = None
+    if setting != "pinn" :
+        testset = evar_dataset.EVARDataset(datapath = datapath + "/dataset", features_cols_txt = features_cols_txt_path, pointcloud_dir = pointcloud_dir_path, split_ids = np.load(split_ids["test"])) 
+    else:
+        testset = evar_dataset.TimeEVARDataset(datapath = datapath + "/dataset", features_cols_txt = features_cols_txt_path, pointcloud_dir = pointcloud_dir_path, split_ids = np.load(split_ids["test"]))
     test_loader = torch.utils.data.DataLoader(
         testset, batch_size=batch_size_val, shuffle=False,
         num_workers=num_worker, drop_last=False
